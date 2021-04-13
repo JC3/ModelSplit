@@ -347,7 +347,7 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
     QString outFilePath = baseDir.absoluteFilePath(outFileName);
 
     if ((outFilePath = sopts.prompter->getFilename(outFilePath)) == "")
-        throw runtime_error("No more meshes will be written.");
+        throw runtime_error("Aborted. No more meshes will be written.");
 
 #ifndef QT_NO_DEBUG
     qDebug().noquote() << "    --> " << outFilePath;
@@ -503,6 +503,14 @@ static void splitModel (const Options &opts) {
                k + 1, inputScene->mMeshes[k]->mNumVertices,
                inputScene->mMeshes[k]->mNumFaces,
                split.components.size());
+        if (split.components.size() > 50) {
+            int r = QMessageBox::warning(nullptr, QString(),
+                                         QString("Warning (input mesh #%1): About to write %2 output files. Is this OK?")
+                                         .arg(k+1).arg(split.components.size()),
+                                         QMessageBox::Abort | QMessageBox::Ok);
+            if (r != QMessageBox::Ok)
+                throw runtime_error("Aborted. No more meshes will be written.");
+        }
         for (int j = 0; j < split.components.size(); ++ j) {
             const Component &c = split.components[j];
             qDebug("  component %d.%d: %d vertices, %d faces", k + 1, j + 1,
