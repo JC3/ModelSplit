@@ -20,9 +20,12 @@ qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
+win32: RC_ICONS = icon.ico
 win32: LIBS += -L$$PWD/3rdparty/assimp-5.0.1/win64-release/bin/ -lassimp-vc142-mt
 win32: INCLUDEPATH += $$PWD/3rdparty/assimp-5.0.1/win64-release/include
 win32: DEPENDPATH += $$PWD/3rdparty/assimp-5.0.1/win64-release/include
 
 INCLUDEPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
 DEPENDPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
+
+RESOURCES +=

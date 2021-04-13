@@ -258,8 +258,6 @@ static QString lookupExtensionForFormat (QString format) {
 
 aiMesh * Component::buildSubMesh () const {
 
-#if 1
-
     aiMesh *mesh = new aiMesh();
     mesh->mNumVertices = vertices.size();
     mesh->mVertices = new aiVector3D[vertices.size()];
@@ -289,28 +287,6 @@ aiMesh * Component::buildSubMesh () const {
     }
 
     return mesh;
-
-#else
-
-    aiVector3D *vertices = new aiVector3D [] {          // deleted: mesh.h:758
-        { -1, -1, 0 },
-        { 0, 1, 0 },
-        { 1, -1, 0 }
-    };
-
-    aiFace *faces = new aiFace[1];                      // deleted: mesh.h:784
-    faces[0].mNumIndices = 3;
-    faces[0].mIndices = new unsigned [] { 0, 1, 2 };    // deleted: mesh.h:149
-
-    aiMesh *mesh = new aiMesh();                        // deleted: Version.cpp:150
-    mesh->mNumVertices = 3;
-    mesh->mVertices = vertices;
-    mesh->mNumFaces = 1;
-    mesh->mFaces = faces;
-
-    return mesh;
-
-#endif
 
 }
 
@@ -617,6 +593,6 @@ int main (int argc, char *argv[]) {
         QMessageBox::critical(nullptr, QString(), x.what());
     }
 
-    return success ? 0 : 1; //a.exec();
+    return success ? 0 : 1;
 
 }

@@ -1,6 +1,7 @@
 debug/
 release/
 deploy/
+local/
 /splitme*
 
 # C++ objects and libs
