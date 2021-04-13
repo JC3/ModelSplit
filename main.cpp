@@ -27,6 +27,13 @@ struct Options {
     QString format;
 };
 
+struct OverwritePrompter {
+    explicit OverwritePrompter (const Options &opts) : overwrite(opts.overwrite) { }
+    QString getFilename (QString filename);
+private:
+    optional<bool> overwrite;
+};
+
 struct Component {
 
     struct SaveOptions {
@@ -34,6 +41,7 @@ struct Component {
         int componentIndex;
         int globalIndex;
         QString defaultFormat;
+        OverwritePrompter *prompter;
     };
 
     const aiMesh *source;
@@ -338,6 +346,13 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
             .arg(baseName, outExtn);
     QString outFilePath = baseDir.absoluteFilePath(outFileName);
 
+    if ((outFilePath = sopts.prompter->getFilename(outFilePath)) == "")
+        throw runtime_error("No more meshes will be written.");
+
+#ifndef QT_NO_DEBUG
+    qDebug().noquote() << "    --> " << outFilePath;
+#endif
+
     // all right; do it!
 
     QScopedPointer<aiScene> scene(new aiScene());
@@ -479,6 +494,8 @@ static void splitModel (const Options &opts) {
 
     // -------- process each mesh --------------------------------------------
 
+    OverwritePrompter prompter(opts);
+
     unsigned n = 0;
     for (unsigned k = 0; k < inputScene->mNumMeshes; ++ k) {
         Splitter split(inputScene->mMeshes[k]);
@@ -495,6 +512,7 @@ static void splitModel (const Options &opts) {
             sopts.componentIndex = j;
             sopts.globalIndex = (n ++);
             sopts.defaultFormat = inputFormat;
+            sopts.prompter = &prompter;
             c.save(opts, sopts);
         }
     }
@@ -503,11 +521,61 @@ static void splitModel (const Options &opts) {
 }
 
 
+QString OverwritePrompter::getFilename (QString filename) {
+
+    QFileInfo info(filename);
+    if (!info.exists())
+        return filename;
+
+    bool overwriteThisTime;
+    if (overwrite.has_value()) {
+        overwriteThisTime = overwrite.value();
+    } else {
+        int choice = QMessageBox::warning(nullptr, QString(), filename + "\n\nFile exists. Overwrite?",
+                                          QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No |
+                                          QMessageBox::NoToAll | QMessageBox::Abort, QMessageBox::No);
+        switch (choice) {
+        case QMessageBox::Yes:
+            overwriteThisTime = true;
+            break;
+        case QMessageBox::YesToAll:
+            overwriteThisTime = true;
+            overwrite = true;
+            break;
+        case QMessageBox::No:
+            overwriteThisTime = false;
+            break;
+        case QMessageBox::NoToAll:
+            overwriteThisTime = false;
+            overwrite = false;
+            break;
+        case QMessageBox::Abort:
+            return QString();
+        }
+    }
+
+    if (!overwriteThisTime) {
+        QDir basePath = info.dir();
+        QString baseName = info.completeBaseName();
+        QString baseExtn = info.suffix();
+        int number = 2;
+        do {
+            filename = baseName + QString(" (%1).").arg(number) + baseExtn;
+            filename = basePath.absoluteFilePath(filename);
+            ++ number;
+        } while (QFileInfo(filename).exists());
+    }
+
+    return filename;
+
+}
+
+
 int main (int argc, char *argv[]) {
 
     QApplication a(argc, argv);
     QApplication::setApplicationName("Model Splitter");
-    QApplication::setApplicationVersion("1.0");
+    QApplication::setApplicationVersion("0.0");
     QApplication::setOrganizationName("Jason C");
 
     QCommandLineParser p;
