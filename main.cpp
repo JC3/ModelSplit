@@ -1,18 +1,19 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
-#include <QMessageBox>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
-#include <QDir>
+#include <QMessageBox>
+#include <QProgressDialog>
 #include <QTranslator>
 #include <optional>
 #include <stdexcept>
 #include <assimp/Importer.hpp>
 #include <assimp/importerdesc.h>
+#include <assimp/Exporter.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include <assimp/Exporter.hpp>
 
 #define WEIGHTED_UNION 0 // hurts more than it helps in testing
 #define DEBUG_TIMES    0
@@ -33,6 +34,19 @@ struct OverwritePrompter {
     QString getFilename (QString filename);
 private:
     optional<bool> overwrite;
+};
+
+struct ComplicatedProgress {
+    explicit ComplicatedProgress (int items) : subcounts(items, 1) { setProgress(0, 0); }
+    void updateCount (int items);
+    void updateSubCount (int item, int subcount);
+    bool setProgress (int item, int subitem = 0);
+    void setFinished ();
+private:
+    QScopedPointer<QProgressDialog> dialog;
+    QVector<int> subcounts;
+    int curitem;
+    int cursubitem;
 };
 
 struct Component {
@@ -350,7 +364,68 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
     // in msvc debug vs. release libs makes destructors crash in debug mode. :(
     // todo: fix this... somehow.
     scene.take();
+    qWarning("  debug build: leaking memory as a workaround");
 #endif
+
+}
+
+
+void ComplicatedProgress::updateCount (int items) {
+
+    if (items >= 0) {
+        int oldcount = subcounts.size();
+        subcounts.resize(items);
+        for (int k = oldcount; k < subcounts.size(); ++ k)
+            subcounts[k] = 1;
+        setProgress(curitem, cursubitem);
+    }
+
+}
+
+
+void ComplicatedProgress::updateSubCount (int item, int subcount) {
+
+    if (item >= 0 && item < subcounts.size() && subcount >= 0) {
+        subcounts[item] = subcount;
+        setProgress(curitem, cursubitem);
+    }
+
+}
+
+
+void ComplicatedProgress::setFinished () {
+
+    setProgress(subcounts.size(), 0);
+
+}
+
+
+bool ComplicatedProgress::setProgress (int item, int subitem) {
+
+    curitem = item;
+    cursubitem = subitem;
+
+    int current = 0, max = 0;
+
+    for (int k = 0; k < subcounts.size(); ++ k) {
+        if (k < item)
+            current += subcounts[k];
+        max += subcounts[k];
+    }
+
+    if (item < subcounts.size())
+        current += subitem;
+
+    if (!dialog) {
+        dialog.reset(new QProgressDialog("Splitting model...", "Cancel", 0, max));
+        dialog->setWindowModality(Qt::ApplicationModal);
+        dialog->setMinimumDuration(0);
+    } else {
+        dialog->setMaximum(max);
+    }
+
+    dialog->setValue(current);
+    return !dialog->wasCanceled();
 
 }
 
@@ -449,6 +524,8 @@ static QString guessInputFormat (const Assimp::Importer &usedImporter,
 
 static void splitModel (const Options &opts) {
 
+    ComplicatedProgress progress(1);
+
     // -------- load input ---------------------------------------------------
 
     Assimp::Importer importer;
@@ -469,13 +546,18 @@ static void splitModel (const Options &opts) {
 
     QString inputFormat = guessInputFormat(importer, opts.input);
 
+    progress.updateCount(inputScene->mNumMeshes + 1);
+
     // -------- process each mesh --------------------------------------------
 
     OverwritePrompter prompter(opts);
 
     unsigned n = 0;
     for (unsigned k = 0; k < inputScene->mNumMeshes; ++ k) {
+        if (!progress.setProgress(k + 1))
+            throw runtime_error(QApplication::tr("Aborted. No more meshes will be written.").toStdString());
         Splitter split(inputScene->mMeshes[k]);
+        progress.updateSubCount(k + 1, split.components.size());
         qDebug("split mesh %d: %d vertices, %d faces, %d components",
                k + 1, inputScene->mMeshes[k]->mNumVertices,
                inputScene->mMeshes[k]->mNumFaces,
@@ -489,6 +571,8 @@ static void splitModel (const Options &opts) {
                 throw runtime_error(QApplication::tr("Aborted. No more meshes will be written.").toStdString());
         }
         for (int j = 0; j < split.components.size(); ++ j) {
+            if (!progress.setProgress(k, j))
+                throw runtime_error(QApplication::tr("Aborted. No more meshes will be written.").toStdString());
             const Component &c = split.components[j];
             qDebug("  component %d.%d: %d vertices, %d faces", k + 1, j + 1,
                    c.vertices.size(), c.faces.size());
@@ -502,6 +586,8 @@ static void splitModel (const Options &opts) {
         }
     }
     qDebug("total meshes created: %d", n);
+
+    progress.setFinished();
 
 }
 
