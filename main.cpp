@@ -515,7 +515,7 @@ int main (int argc, char *argv[]) {
     QCommandLineOption version = p.addVersionOption();
     p.addPositionalArgument("input", "Input file name.");
     p.addOptions({
-                     { "u", "Unify duplicate vertices (you'll definitely want this for STL)." },
+                     { "no-unify", "Do not unify duplicate vertices." },
                      { "y", "Always overwrite, don't prompt." },
                      { "n", "Never overwrite, don't prompt (overrides -y)." },
                      { "f", "Output format (default is same as input, or OBJ if unsupported).", "format" }
@@ -529,7 +529,7 @@ int main (int argc, char *argv[]) {
 
     Options opts;
     opts.input = p.positionalArguments()[0];
-    opts.unify = p.isSet("u");
+    opts.unify = !p.isSet("no-unify");
     opts.overwrite = (p.isSet("n") ? false : (p.isSet("y") ? true : optional<bool>()));
     opts.format = p.value("f");
 
