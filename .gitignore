@@ -4,6 +4,9 @@ deploy/
 local/
 /splitme*
 
+/modelsplit_resource.rc
+
+
 # C++ objects and libs
 *.slo
 *.lo

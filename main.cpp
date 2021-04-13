@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QDir>
+#include <QTranslator>
 #include <optional>
 #include <stdexcept>
 #include <assimp/Importer.hpp>
@@ -323,7 +324,7 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
     QString outFilePath = baseDir.absoluteFilePath(outFileName);
 
     if ((outFilePath = sopts.prompter->getFilename(outFilePath)) == "")
-        throw runtime_error("Aborted. No more meshes will be written.");
+        throw runtime_error(QApplication::tr("Aborted. No more meshes will be written.").toStdString());
 
 #ifndef QT_NO_DEBUG
     qDebug().noquote() << "    --> " << outFilePath;
@@ -342,7 +343,7 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
 
     Assimp::Exporter exporter;
     if (exporter.Export(scene.get(), outFormat.toLatin1().constData(), outFilePath.toLatin1().constData()) != AI_SUCCESS)
-        throw runtime_error(QString("Export: %1").arg(exporter.GetErrorString()).toStdString());
+        throw runtime_error(QApplication::tr("Export: %1").arg(exporter.GetErrorString()).toStdString());
 
 #ifndef QT_NO_DEBUG
     // hack; just leak memory for now in debug builds, mismatched new[] and delete[]
@@ -462,9 +463,9 @@ static void splitModel (const Options &opts) {
                                                   (opts.unify ? aiProcess_JoinIdenticalVertices : 0));
 
     if (!inputScene)
-        throw runtime_error(QString("Import Error: %1").arg(importer.GetErrorString()).toStdString());
+        throw runtime_error(QApplication::tr("Import Error: %1").arg(importer.GetErrorString()).toStdString());
     else if (!inputScene->HasMeshes())
-        throw runtime_error("Import Error: No mesh data found in file.");
+        throw runtime_error(QApplication::tr("Import Error: No mesh data found in file.").toStdString());
 
     QString inputFormat = guessInputFormat(importer, opts.input);
 
@@ -481,11 +482,11 @@ static void splitModel (const Options &opts) {
                split.components.size());
         if (split.components.size() > 50) {
             int r = QMessageBox::warning(nullptr, QString(),
-                                         QString("Warning (input mesh #%1): About to write %2 output files. Is this OK?")
+                                         QApplication::tr("Warning (input mesh #%1): About to write %2 output files. Is this OK?")
                                          .arg(k+1).arg(split.components.size()),
                                          QMessageBox::Abort | QMessageBox::Ok);
             if (r != QMessageBox::Ok)
-                throw runtime_error("Aborted. No more meshes will be written.");
+                throw runtime_error(QApplication::tr("Aborted. No more meshes will be written.").toStdString());
         }
         for (int j = 0; j < split.components.size(); ++ j) {
             const Component &c = split.components[j];
@@ -515,7 +516,7 @@ QString OverwritePrompter::getFilename (QString filename) {
     if (overwrite.has_value()) {
         overwriteThisTime = overwrite.value();
     } else {
-        int choice = QMessageBox::warning(nullptr, QString(), filename + "\n\nFile exists. Overwrite?",
+        int choice = QMessageBox::warning(nullptr, QString(), filename + "\n\n" + QApplication::tr("File exists. Overwrite?"),
                                           QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No |
                                           QMessageBox::NoToAll | QMessageBox::Abort, QMessageBox::No);
         switch (choice) {
@@ -562,15 +563,19 @@ int main (int argc, char *argv[]) {
     QApplication::setApplicationVersion("0.0");
     QApplication::setOrganizationName("Jason C");
 
+    QTranslator t;
+    t.load("modelsplit_" + QLocale::system().name());
+    a.installTranslator(&t);
+
     QCommandLineParser p;
     QCommandLineOption help = p.addHelpOption();
     QCommandLineOption version = p.addVersionOption();
-    p.addPositionalArgument("input", "Input file name.");
+    p.addPositionalArgument(QApplication::tr("input"), QApplication::tr("Input file name."));
     p.addOptions({
-                     { "no-unify", "Do not unify duplicate vertices." },
-                     { "y", "Always overwrite, don't prompt." },
-                     { "n", "Never overwrite, don't prompt (overrides -y)." },
-                     { "f", "Output format (default is same as input, or OBJ if unsupported).", "format" }
+                     { "no-unify", QApplication::tr("Do not unify duplicate vertices.") },
+                     { "y", QApplication::tr("Always overwrite, don't prompt.") },
+                     { "n", QApplication::tr("Never overwrite, don't prompt (overrides -y).") },
+                     { "f", QApplication::tr("Output format (default is same as input, or OBJ if unsupported)."), "format" }
                  });
     bool parsed = p.parse(a.arguments());
 

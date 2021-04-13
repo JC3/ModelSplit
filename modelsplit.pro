@@ -29,3 +29,6 @@ INCLUDEPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
 DEPENDPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
 
 RESOURCES +=
+
+TRANSLATIONS += modelsplit_en.ts modelsplit_es.ts
+
