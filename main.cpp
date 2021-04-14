@@ -710,8 +710,7 @@ static int setupShellMenus (bool install, bool elevate) {
         qWarning() << pid << "setupShellMenus: access denied, attempting to elevate...";
         //if (QProcess::execute("runas", { executable, install ? "--register" : "--unregister" }) < 0)
         //    QMessageBox::critical(nullptr, QString(), "Could not update registry: Failed elevation attempt.");
-#pragma warning(suppress: 4311 4302)
-        if ((int)ShellExecuteW(NULL, L"runas", executable.toStdWString().c_str(), install ? L"--register" : L"--unregister", NULL, SW_SHOW) <= 32)
+        if (PtrToInt(ShellExecuteW(NULL, L"runas", executable.toStdWString().c_str(), install ? L"--register" : L"--unregister", NULL, SW_SHOW)) <= 32)
             QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry: Failed to run elevated process."));
     } else {
         if (cls.status() == QSettings::NoError)
