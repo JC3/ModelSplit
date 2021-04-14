@@ -51,5 +51,13 @@
         <source>input</source>
         <translation></translation>
     </message>
+    <message>
+        <source>Register shell context menus for model file types.</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Deregister shell context menus created by --register.</source>
+        <translation></translation>
+    </message>
 </context>
 </TS>

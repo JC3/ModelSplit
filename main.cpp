@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QSettings>
 #include <QTranslator>
 #include <optional>
 #include <stdexcept>
@@ -642,15 +643,75 @@ QString OverwritePrompter::getFilename (QString filename) {
 }
 
 
+#ifdef Q_OS_WIN
+static int setupShellMenus (bool install) {
+
+    // bug (for now): if user does --register, then assimp drops support for an extension
+    // and user updates modelsplit, then does --unregister, the no-longer-supported extensions
+    // won't be cleaned up. until this happens, i'm not going to fix it (solution is to log
+    // changes somewhere then undo those on --unregister). for now i'll just make sure the
+    // installer reregisters things when appropriate and that should do it.
+
+    std::string extnstrs;
+    Assimp::Importer().GetExtensionList(extnstrs);
+    QStringList extns = QString::fromStdString(extnstrs).replace("*", ";").split(";", Qt::SkipEmptyParts);
+
+    QString executable = QFileInfo(QApplication::applicationFilePath()).canonicalFilePath();
+    executable = QDir::toNativeSeparators(executable);
+    QString command = QString("\"%1\" \"%2\"").arg(executable, "%1");
+
+    //QSettings cls("HKEY_CURRENT_USER\\SOFTWARE\\Classes", QSettings::NativeFormat);
+    QSettings cls("HKEY_LOCAL_MACHINE\\SOFTWARE\\Classes\\SystemFileAssociations", QSettings::NativeFormat);
+
+    foreach (QString key, extns) {
+        key = key.trimmed();
+        if (!key.startsWith(".") || key.length() <= 1 || key.contains("/") || key.contains("\\")) {
+            qWarning() << "skipping strange extension" << key;
+            continue;
+        }
+        if (install) {
+            cls.beginGroup(key);
+            cls.beginGroup("shell");
+            cls.beginGroup("ModelSplit.Split");
+            cls.setValue(".", "Split 3D Model...");
+            cls.beginGroup("command");
+            if (cls.value(".").toString() != command)
+                qDebug().noquote() << "setupShellMenus: registering menu for" << key;
+            cls.setValue(".", command);
+            cls.endGroup();
+            cls.endGroup();
+            cls.endGroup();
+            cls.endGroup();
+        } else {
+            cls.beginGroup(key);
+            cls.beginGroup("shell");
+            if (cls.childGroups().contains("ModelSplit.Split", Qt::CaseInsensitive)) {
+                qDebug().noquote() << "setupShellMenus: unregistering menu for" << key;
+                cls.beginGroup("ModelSplit.Split");
+                cls.remove("");
+                cls.endGroup();
+            }
+            cls.endGroup();
+            cls.endGroup();
+        }
+    }
+
+    return 0;
+
+}
+#endif
+
+
 int main (int argc, char *argv[]) {
+
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
     QApplication a(argc, argv);
     QApplication::setApplicationName("Model Splitter");
-    QApplication::setApplicationVersion("0.0");
     QApplication::setOrganizationName("Jason C");
 
     QTranslator t;
-    t.load("modelsplit_" + QLocale::system().name());
+    t.load(":/i18n/modelsplit_" + QLocale::system().name());
     a.installTranslator(&t);
 
     QCommandLineParser p;
@@ -658,15 +719,23 @@ int main (int argc, char *argv[]) {
     QCommandLineOption version = p.addVersionOption();
     p.addPositionalArgument(QApplication::tr("input"), QApplication::tr("Input file name."));
     p.addOptions({
-                     { "no-unify", QApplication::tr("Do not unify duplicate vertices.") },
-                     { "y", QApplication::tr("Always overwrite, don't prompt.") },
-                     { "n", QApplication::tr("Never overwrite, don't prompt (overrides -y).") },
-                     { "f", QApplication::tr("Output format (default is same as input, or OBJ if unsupported)."), "format" }
+                     { "no-unify", QApplication::tr("Do not unify duplicate vertices.") }
+                    ,{ "y", QApplication::tr("Always overwrite, don't prompt.") }
+                    ,{ "n", QApplication::tr("Never overwrite, don't prompt (overrides -y).") }
+                    ,{ "f", QApplication::tr("Output format (default is same as input, or OBJ if unsupported)."), "format" }
+#ifdef Q_OS_WIN
+                    ,{ "register", QApplication::tr("Register shell context menus for model file types.") }
+                    ,{ "unregister", QApplication::tr("Deregister shell context menus created by --register.") }
+#endif
                  });
     bool parsed = p.parse(a.arguments());
 
     if (p.isSet(help) || p.isSet("help-all") || p.isSet(version))
         p.process(a);
+#ifdef Q_OS_WIN
+    else if (parsed && (p.isSet("register") || p.isSet("unregister")))
+        return setupShellMenus(p.isSet("register"));
+#endif
     else if (!parsed || p.positionalArguments().size() != 1)
         p.showHelp();
 

@@ -1,3 +1,5 @@
+VERSION = 0.9.0.0
+
 QT       += core gui
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
@@ -28,7 +30,6 @@ win32: DEPENDPATH += $$PWD/3rdparty/assimp-5.0.1/win64-release/include
 INCLUDEPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
 DEPENDPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
 
-RESOURCES +=
-
 TRANSLATIONS += modelsplit_en.ts modelsplit_es.ts
+CONFIG += lrelease embed_translations
 
