@@ -16,6 +16,12 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
+#ifdef Q_OS_WIN
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#  include <shellapi.h>
+#endif
+
 #define WEIGHTED_UNION 0 // hurts more than it helps in testing
 #define DEBUG_TIMES    0
 
@@ -644,7 +650,7 @@ QString OverwritePrompter::getFilename (QString filename) {
 
 
 #ifdef Q_OS_WIN
-static int setupShellMenus (bool install) {
+static int setupShellMenus (bool install, bool elevate) {
 
     // bug (for now): if user does --register, then assimp drops support for an extension
     // and user updates modelsplit, then does --unregister, the no-longer-supported extensions
@@ -659,6 +665,7 @@ static int setupShellMenus (bool install) {
     QString executable = QFileInfo(QApplication::applicationFilePath()).canonicalFilePath();
     executable = QDir::toNativeSeparators(executable);
     QString command = QString("\"%1\" \"%2\"").arg(executable, "%1");
+    qint64 pid = QApplication::applicationPid(); // for logging
 
     //QSettings cls("HKEY_CURRENT_USER\\SOFTWARE\\Classes", QSettings::NativeFormat);
     QSettings cls("HKEY_LOCAL_MACHINE\\SOFTWARE\\Classes\\SystemFileAssociations", QSettings::NativeFormat);
@@ -676,7 +683,7 @@ static int setupShellMenus (bool install) {
             cls.setValue(".", "Split 3D Model...");
             cls.beginGroup("command");
             if (cls.value(".").toString() != command)
-                qDebug().noquote() << "setupShellMenus: registering menu for" << key;
+                qDebug().noquote() << pid << "setupShellMenus: registering menu for" << key;
             cls.setValue(".", command);
             cls.endGroup();
             cls.endGroup();
@@ -686,7 +693,7 @@ static int setupShellMenus (bool install) {
             cls.beginGroup(key);
             cls.beginGroup("shell");
             if (cls.childGroups().contains("ModelSplit.Split", Qt::CaseInsensitive)) {
-                qDebug().noquote() << "setupShellMenus: unregistering menu for" << key;
+                qDebug().noquote() << pid << "setupShellMenus: unregistering menu for" << key;
                 cls.beginGroup("ModelSplit.Split");
                 cls.remove("");
                 cls.endGroup();
@@ -695,6 +702,27 @@ static int setupShellMenus (bool install) {
             cls.endGroup();
         }
     }
+
+    cls.sync();
+    qDebug() << pid << "setupShellMenus:" << cls.status();
+
+    if (cls.status() == QSettings::AccessError && elevate) {
+        qWarning() << pid << "setupShellMenus: access denied, attempting to elevate...";
+        //if (QProcess::execute("runas", { executable, install ? "--register" : "--unregister" }) < 0)
+        //    QMessageBox::critical(nullptr, QString(), "Could not update registry: Failed elevation attempt.");
+#pragma warning(suppress: 4311 4302)
+        if ((int)ShellExecuteW(NULL, L"runas", executable.toStdWString().c_str(), install ? L"--register" : L"--unregister", NULL, SW_SHOW) <= 32)
+            QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry: Failed to run elevated process."));
+    } else {
+        if (cls.status() == QSettings::NoError)
+            QMessageBox::information(nullptr, QString(), QApplication::tr("Shell context menus updated."));
+        else if (cls.status() == QSettings::AccessError)
+            QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry: Access denied."));
+        else
+            QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry."));
+    }
+
+    qDebug() << pid << "setupShellMenus: finished";
 
     return 0;
 
@@ -726,6 +754,7 @@ int main (int argc, char *argv[]) {
 #ifdef Q_OS_WIN
                     ,{ "register", QApplication::tr("Register shell context menus for model file types.") }
                     ,{ "unregister", QApplication::tr("Deregister shell context menus created by --register.") }
+                    ,{ "elevate", QApplication::tr("Try to elevate to admin if [un]register fails.") }
 #endif
                  });
     bool parsed = p.parse(a.arguments());
@@ -734,7 +763,7 @@ int main (int argc, char *argv[]) {
         p.process(a);
 #ifdef Q_OS_WIN
     else if (parsed && (p.isSet("register") || p.isSet("unregister")))
-        return setupShellMenus(p.isSet("register"));
+        return setupShellMenus(p.isSet("register"), p.isSet("elevate"));
 #endif
     else if (!parsed || p.positionalArguments().size() != 1)
         p.showHelp();

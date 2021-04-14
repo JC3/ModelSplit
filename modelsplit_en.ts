@@ -59,5 +59,25 @@
         <source>Deregister shell context menus created by --register.</source>
         <translation></translation>
     </message>
+    <message>
+        <source>Could not update registry: Failed to run elevated process.</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Shell context menus updated.</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Could not update registry: Access denied.</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Could not update registry.</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Try to elevate to admin if [un]register fails.</source>
+        <translation></translation>
+    </message>
 </context>
 </TS>
