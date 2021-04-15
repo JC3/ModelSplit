@@ -434,7 +434,7 @@ bool ComplicatedProgress::setProgress (int item, int subitem) {
         dialog->setMinimumDuration(0);
         dialog->setAutoClose(false);
         dialog->setAutoReset(false);
-        dialog->sho w();
+        dialog->show();
         QApplication::processEvents();
     } else {
         dialog->setMaximum(max);
