@@ -702,7 +702,7 @@ QString OverwritePrompter::getFilename (QString filename) {
 
 
 #ifdef Q_OS_WIN
-static int setupShellMenus (bool install, bool elevate) {
+static int setupShellMenus (bool install, bool elevate, bool showok) {
 
     // bug (for now): if user does --register, then assimp drops support for an extension
     // and user updates modelsplit, then does --unregister, the no-longer-supported extensions
@@ -766,12 +766,14 @@ static int setupShellMenus (bool install, bool elevate) {
         if (PtrToInt(ShellExecuteW(NULL, L"runas", executable.toStdWString().c_str(), install ? L"--register" : L"--unregister", NULL, SW_SHOW)) <= 32)
             QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry: Failed to run elevated process."));
     } else {
-        if (cls.status() == QSettings::NoError)
-            QMessageBox::information(nullptr, QString(), QApplication::tr("Shell context menus updated."));
-        else if (cls.status() == QSettings::AccessError)
+        if (cls.status() == QSettings::NoError) {
+            if (showok)
+                QMessageBox::information(nullptr, QString(), QApplication::tr("Shell context menus updated."));
+        } else if (cls.status() == QSettings::AccessError) {
             QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry: Access denied."));
-        else
+        } else {
             QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry."));
+        }
     }
 
     qDebug() << pid << "setupShellMenus: finished";
@@ -808,6 +810,7 @@ int main (int argc, char *argv[]) {
                     ,{ "register", QApplication::tr("Register shell context menus for model file types.") }
                     ,{ "unregister", QApplication::tr("Deregister shell context menus created by --register.") }
                     ,{ "elevate", QApplication::tr("Try to elevate to admin if [un]register fails.") }
+                    ,{ "quieter", QApplication::tr("Don't show message box on success (for --[un]register).") }
 #endif
                  });
     bool parsed = p.parse(a.arguments());
@@ -816,7 +819,7 @@ int main (int argc, char *argv[]) {
         p.process(a);
 #ifdef Q_OS_WIN
     else if (parsed && (p.isSet("register") || p.isSet("unregister")))
-        return setupShellMenus(p.isSet("register"), p.isSet("elevate"));
+        return setupShellMenus(p.isSet("register"), p.isSet("elevate"), !p.isSet("quieter"));
 #endif
     else if (!parsed || p.positionalArguments().size() != 1)
         p.showHelp();
