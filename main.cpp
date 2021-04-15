@@ -192,7 +192,7 @@ void Splitter::split () {
     // optimize this but it seems to be doing fine as is.
     for (unsigned k = 0; k < mesh->mNumVertices; ++ k) {
         if (usedVertices[k]) {
-            int name = componentIndex[vroot(k)];
+            int name = componentIndex[vertexComponent[k]];
             Q_ASSERT(name >= 0 && name < components.size());
             vertexComponent[k] = name;
             components[name].vertices.append(k);
