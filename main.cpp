@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QSettings>
@@ -34,13 +35,7 @@ struct Options {
     bool unify;
     optional<bool> overwrite;
     QString format;
-};
-
-struct OverwritePrompter {
-    explicit OverwritePrompter (const Options &opts) : overwrite(opts.overwrite) { }
-    QString getFilename (QString filename);
-private:
-    optional<bool> overwrite;
+    bool pickFormat;
 };
 
 struct ComplicatedProgress {
@@ -49,11 +44,21 @@ struct ComplicatedProgress {
     void updateSubCount (int item, int subcount);
     bool setProgress (int item, int subitem = 0);
     void setFinished ();
+    void setEnabled (bool enabled) { dialog->setEnabled(enabled); }
 private:
     QScopedPointer<QProgressDialog> dialog;
     QVector<int> subcounts;
     int curitem;
     int cursubitem;
+};
+
+struct OverwritePrompter {
+    explicit OverwritePrompter (const Options &opts, ComplicatedProgress *progress)
+        : overwrite(opts.overwrite), progress(progress) { }
+    QString getFilename (QString filename);
+private:
+    optional<bool> overwrite;
+    ComplicatedProgress *progress;
 };
 
 struct Component {
@@ -424,9 +429,13 @@ bool ComplicatedProgress::setProgress (int item, int subitem) {
         current += subitem;
 
     if (!dialog) {
-        dialog.reset(new QProgressDialog("Splitting model...", "Cancel", 0, max));
+        dialog.reset(new QProgressDialog(QApplication::tr("Splitting model..."), QApplication::tr("Cancel"), 0, max));
         dialog->setWindowModality(Qt::ApplicationModal);
         dialog->setMinimumDuration(0);
+        dialog->setAutoClose(false);
+        dialog->setAutoReset(false);
+        dialog->sho w();
+        QApplication::processEvents();
     } else {
         dialog->setMaximum(max);
     }
@@ -529,8 +538,34 @@ static QString guessInputFormat (const Assimp::Importer &usedImporter,
 }
 
 
-static void splitModel (const Options &opts) {
+static QString pickOutputFormat (QString initial) {
 
+    QMap<QString,QString> choicemap;
+    QString initialText;
+
+    for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k) {
+        const aiExportFormatDesc *desc = aiGetExportFormatDescription(k);
+        QString text = QString(".%2 - %1 [%3]").arg(desc->description, desc->fileExtension, desc->id);
+        choicemap[text] = desc->id;
+        if (desc->id == initial)
+            initialText = text;
+    }
+
+    QStringList choices = choicemap.keys();
+    qSort(choices.begin(), choices.end());
+    int initialIndex = choices.indexOf(initialText);
+
+    bool ok;
+    QString choice = QInputDialog::getItem(nullptr, QString(), QApplication::tr("Choose output format:"), choices, initialIndex, false, &ok);
+
+    return ok ? choicemap[choice] : QString();
+
+}
+
+
+static void splitModel (const Options &opts_) {
+
+    Options opts = opts_;
     ComplicatedProgress progress(1);
 
     // -------- load input ---------------------------------------------------
@@ -555,9 +590,19 @@ static void splitModel (const Options &opts) {
 
     progress.updateCount(inputScene->mNumMeshes + 1);
 
+    // -------- show format picker if requested ------------------------------
+
+    if (opts.pickFormat) {
+        progress.setEnabled(false);
+        opts.format = pickOutputFormat(opts.format == "" ? inputFormat : opts.format);
+        if (opts.format == "")
+            return;
+        progress.setEnabled(true);
+    }
+
     // -------- process each mesh --------------------------------------------
 
-    OverwritePrompter prompter(opts);
+    OverwritePrompter prompter(opts, &progress);
 
     unsigned n = 0;
     for (unsigned k = 0; k < inputScene->mNumMeshes; ++ k) {
@@ -609,9 +654,11 @@ QString OverwritePrompter::getFilename (QString filename) {
     if (overwrite.has_value()) {
         overwriteThisTime = overwrite.value();
     } else {
+        progress->setEnabled(false);
         int choice = QMessageBox::warning(nullptr, QString(), filename + "\n\n" + QApplication::tr("File exists. Overwrite?"),
                                           QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No |
                                           QMessageBox::NoToAll | QMessageBox::Abort, QMessageBox::No);
+        progress->setEnabled(true);
         switch (choice) {
         case QMessageBox::Yes:
             overwriteThisTime = true;
@@ -664,7 +711,8 @@ static int setupShellMenus (bool install, bool elevate) {
 
     QString executable = QFileInfo(QApplication::applicationFilePath()).canonicalFilePath();
     executable = QDir::toNativeSeparators(executable);
-    QString command = QString("\"%1\" \"%2\"").arg(executable, "%1");
+    //QString command = QString("\"%1\" \"%2\"").arg(executable, "%1");
+    QString command = QString("\"%1\" \"%2\" -f objnomtl -F").arg(executable, "%1");
     qint64 pid = QApplication::applicationPid(); // for logging
 
     //QSettings cls("HKEY_CURRENT_USER\\SOFTWARE\\Classes", QSettings::NativeFormat);
@@ -750,6 +798,7 @@ int main (int argc, char *argv[]) {
                     ,{ "y", QApplication::tr("Always overwrite, don't prompt.") }
                     ,{ "n", QApplication::tr("Never overwrite, don't prompt (overrides -y).") }
                     ,{ "f", QApplication::tr("Output format (default is same as input, or OBJ if unsupported)."), "format" }
+                    ,{ "F", QApplication::tr("Pick output format from dialog (overrides -f).") }
 #ifdef Q_OS_WIN
                     ,{ "register", QApplication::tr("Register shell context menus for model file types.") }
                     ,{ "unregister", QApplication::tr("Deregister shell context menus created by --register.") }
@@ -772,6 +821,7 @@ int main (int argc, char *argv[]) {
     opts.unify = !p.isSet("no-unify");
     opts.overwrite = (p.isSet("n") ? false : (p.isSet("y") ? true : optional<bool>()));
     opts.format = p.value("f");
+    opts.pickFormat = p.isSet("F");
 
     bool success = false;
     try {

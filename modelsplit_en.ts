@@ -79,5 +79,21 @@
         <source>Try to elevate to admin if [un]register fails.</source>
         <translation></translation>
     </message>
+    <message>
+        <source>Splitting model...</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Choose output format:</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Pick output format from dialog (overrides -f).</source>
+        <translation></translation>
+    </message>
 </context>
 </TS>
