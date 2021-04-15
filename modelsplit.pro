@@ -17,6 +17,9 @@ HEADERS +=
 
 FORMS +=
 
+DISTFILES += \
+    README.md
+
 TRANSLATIONS += modelsplit_en.ts modelsplit_es.ts
 CONFIG += lrelease embed_translations
 
@@ -36,4 +39,3 @@ win32: DEPENDPATH += $$ASSIMP_ARCH_PATH/include
 
 INCLUDEPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
 DEPENDPATH += $$PWD/3rdparty/assimp-5.0.1/common/include
-
