@@ -360,12 +360,15 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
 
     QScopedPointer<aiScene> scene(new aiScene());
     scene->mNumMeshes = 1;
-    scene->mMeshes = new aiMesh * [] { buildSubMesh() };
+    scene->mMeshes = new aiMesh * [1];
+    scene->mMeshes[0] = buildSubMesh();
     scene->mNumMaterials = 1;
-    scene->mMaterials = new aiMaterial * [] { new aiMaterial() };
+    scene->mMaterials = new aiMaterial * [1];
+    scene->mMaterials[0] = new aiMaterial();
     scene->mRootNode = new aiNode();
     scene->mRootNode->mNumMeshes = 1;
-    scene->mRootNode->mMeshes = new unsigned [] { 0 };
+    scene->mRootNode->mMeshes = new unsigned [1];
+    scene->mRootNode->mMeshes[0] = 0;
 
     Assimp::Exporter exporter;
     if (exporter.Export(scene.get(), outFormat.toLatin1().constData(), outFilePath.toLatin1().constData()) != AI_SUCCESS)
@@ -552,7 +555,7 @@ static QString pickOutputFormat (QString initial) {
     }
 
     QStringList choices = choicemap.keys();
-    qSort(choices.begin(), choices.end());
+    std::sort(choices.begin(), choices.end());
     int initialIndex = choices.indexOf(initialText);
 
     bool ok;
@@ -572,14 +575,16 @@ static void splitModel (const Options &opts_) {
 
     Assimp::Importer importer;
     importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS, ~aiComponent_MESHES);
-    const aiScene *inputScene = importer.ReadFile(opts.input.toStdString(),
-                                                  aiProcess_Triangulate |
-                                                  aiProcess_PreTransformVertices |
-                                                  aiProcess_ValidateDataStructure |
-                                                  aiProcess_FindInvalidData |
-                                                  aiProcess_FindDegenerates |
-                                                  aiProcess_RemoveComponent |
-                                                  (opts.unify ? aiProcess_JoinIdenticalVertices : 0));
+    unsigned int preprocessFlags =
+            aiProcess_Triangulate |
+            aiProcess_PreTransformVertices |
+            aiProcess_ValidateDataStructure |
+            aiProcess_FindInvalidData |
+            aiProcess_FindDegenerates |
+            aiProcess_RemoveComponent;
+    if (opts.unify)
+        preprocessFlags |= aiProcess_JoinIdenticalVertices;
+    const aiScene *inputScene = importer.ReadFile(opts.input.toStdString(), preprocessFlags);
 
     if (!inputScene)
         throw runtime_error(QApplication::tr("Import Error: %1").arg(importer.GetErrorString()).toStdString());
@@ -674,7 +679,7 @@ QString OverwritePrompter::getFilename (QString filename) {
             overwriteThisTime = false;
             overwrite = false;
             break;
-        case QMessageBox::Abort:
+        default:
             return QString();
         }
     }
