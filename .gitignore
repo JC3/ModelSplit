@@ -5,6 +5,7 @@ deploy/*
 !deploy/installer.nsi
 local/
 /splitme*
+docs/
 
 /modelsplit_resource.rc
 

@@ -284,7 +284,7 @@ void Splitter::split () {
  * can only be called up to a certain point in split() without breaking. See
  * source comments there. Disjoint-set operation.
  *
- * @param   Vertex index.
+ * @param   v Vertex index.
  * @return  Root ID i.e. equivalency class.
  */
 int Splitter::vroot (int v) {
