@@ -24,7 +24,7 @@
 #
 # --------------------------------------------------------------------------
 
-VERSION = 1.0.0.2
+VERSION = 0.9.0.2
 
 QT       += core gui
 
@@ -44,6 +44,7 @@ HEADERS +=
 FORMS +=
 
 DISTFILES += \
+    Doxyfile \
     README.md \
     deploy/installer.nsi
 

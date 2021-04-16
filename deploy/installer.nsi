@@ -32,7 +32,7 @@
 
 ; HM NIS Edit Wizard helper defines
 !define PRODUCT_NAME "Model Splitter"
-!define PRODUCT_VERSION "1.0.0"
+!define PRODUCT_VERSION "0.9.0"
 !define PRODUCT_PUBLISHER "Jason C"
 !define PRODUCT_WEB_SITE "https://github.com/JC3/ModelSplit"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\modelsplit.exe"
