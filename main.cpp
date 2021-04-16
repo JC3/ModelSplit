@@ -1,3 +1,29 @@
+/* --------------------------------------------------------------------------
+ *
+ * MIT License
+ *
+ * Copyright (c) 2021 Jason C
+ *
+ * Permission is  hereby granted,  free of charge,  to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without  restriction, including without limitation
+ * the rights to use,  copy, modify, merge, publish,  distribute, sublicense,
+ * and/or sell  copies of  the Software,  and to permit  persons to  whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED,  INCLUDING BUT NOT LIMITED TO  THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A  PARTICULAR PURPOSE  AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY,  WHETHER IN AN ACTION OF CONTRACT,  TORT OR OTHERWISE,  ARISING
+ * FROM,  OUT OF  OR IN  CONNECTION WITH  THE SOFTWARE  OR THE  USE OR  OTHER
+ * DEALINGS IN THE SOFTWARE.
+ *
+ * ------------------------------------------------------------------------*/
+
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
@@ -23,21 +49,23 @@
 #  include <shellapi.h>
 #endif
 
-#define WEIGHTED_UNION 0 // hurts more than it helps in testing
-#define DEBUG_TIMES    0
+#define WEIGHTED_UNION 0 // use weighting in vunion(); hurts more than it helps in testing
+#define DEBUG_TIMES    0 // print some timing info
 
 using std::exception;
 using std::runtime_error;
 using std::optional;
 
+/** Options parsed from the command line. */
 struct Options {
-    QString input;
-    bool unify;
-    optional<bool> overwrite;
-    QString format;
-    bool pickFormat;
+    QString input;             /**< Input filename. */
+    bool unify;                /**< Unify vertices on input? */
+    optional<bool> overwrite;  /**< Forced overwrite mode, if specified. */
+    QString format;            /**< Output format ID, if specified. */
+    bool pickFormat;           /**< Show output format picker dialog? */
 };
 
+/** An overly-complicated progress dialog. */
 struct ComplicatedProgress {
     explicit ComplicatedProgress (int items) : subcounts(items, 1) { setProgress(0, 0); }
     void updateCount (int items);
@@ -52,6 +80,7 @@ private:
     int cursubitem;
 };
 
+/** Prompts to overwrite if needed; saves state if "Yes To All" / "No To All" chosen. */
 struct OverwritePrompter {
     explicit OverwritePrompter (const Options &opts, ComplicatedProgress *progress)
         : overwrite(opts.overwrite), progress(progress) { }
@@ -61,19 +90,22 @@ private:
     ComplicatedProgress *progress;
 };
 
+/** A split component; it's the source mesh and a subset of its vertex and face indices.
+ *  Also handles exporting the component to an output file. */
 struct Component {
 
+    /** Options relevant to saving the ouput file. */
     struct SaveOptions {
-        int sourceIndex;
-        int componentIndex;
-        int globalIndex;
-        QString defaultFormat;
-        OverwritePrompter *prompter;
+        int sourceIndex;              /**< Index of source mesh (usually it's just 0). */
+        int componentIndex;           /**< Index of component, in source mesh. */
+        int globalIndex;              /**< Index of component, globally. */
+        QString defaultFormat;        /**< Fallback format ID if Options::format not set. */
+        OverwritePrompter *prompter;  /**< A shared OverwritePrompter. */
     };
 
-    const aiMesh *source;
-    QVector<int> vertices;
-    QVector<int> faces;
+    const aiMesh *source;    /**< The source mesh. */
+    QVector<int> vertices;   /**< Indices of source vertices for this component. */
+    QVector<int> faces;      /**< Indices of source faces for this component. */
 
     explicit Component (const aiMesh *source = nullptr) : source(source) { }
 
@@ -82,10 +114,16 @@ struct Component {
 
 };
 
+/** Splits a mesh into components. This doesn't really *need* to exist (it made more
+ *  sense when I started), but it's handy to pass buffers around, I guess.
+ *
+ *  @todo Clean up implementation of split(), maybe make this struct disappear. It's
+ *        working fine as-is, though, and it's plenty fast.
+ */
 struct Splitter {
 
-    const aiMesh *mesh;
-    QVector<Component> components;
+    const aiMesh *mesh;             /**< The source mesh. */
+    QVector<Component> components;  /**< Split components from source mesh. */
 
     explicit Splitter (const aiMesh *mesh) : mesh(mesh) { split(); }
     void split ();
@@ -97,15 +135,24 @@ private:
 #if WEIGHTED_UNION
     QVector<int> treeSize;
 #endif
-    QVector<int> vertexComponent;
-    QVector<int> faceComponent;
+    QVector<int> vertexComponent;   /**< Intermediate buffer for vertex component IDs. */
+    QVector<int> faceComponent;     /**< Intermediate buffer for face component IDs. */
 
+    // Ye olde disjoint set. Operates on vertexComponent.
     int vroot (int v);
     void vunion (int a, int b);
 
 };
 
 
+/**
+ * Split the source mesh into individual components. There is no error return; if
+ * the source mesh is null or empty, it'll just have zero components.
+ *
+ * @pre   Source mesh is in 'mesh'.
+ * @post  Components are in 'components'.
+ * @todo  Clean this up, maybe.
+ */
 void Splitter::split () {
 
 #if DEBUG_TIMES
@@ -188,6 +235,9 @@ void Splitter::split () {
 
     components.fill(Component(mesh), componentNames.size());
 
+    // do not call vroot() / vunion() after this point, vertexComponent is about
+    // to be repurposed to hold component IDs instead of vertex root IDs.
+
     // replace vertex equivalency classes with component ids; i don't know how to
     // optimize this but it seems to be doing fine as is.
     for (unsigned k = 0; k < mesh->mNumVertices; ++ k) {
@@ -229,6 +279,14 @@ void Splitter::split () {
 }
 
 
+/**
+ * Find root of vertexComponent node. Also does partial path compression. This
+ * can only be called up to a certain point in split() without breaking. See
+ * source comments there. Disjoint-set operation.
+ *
+ * @param   Vertex index.
+ * @return  Root ID i.e. equivalency class.
+ */
 int Splitter::vroot (int v) {
 
     while (v != vertexComponent[v]) {
@@ -241,6 +299,13 @@ int Splitter::vroot (int v) {
 }
 
 
+/**
+ * Mark two vertices as equivalent. Same deal re: split() as vroot(). This is
+ * also a disjoint-set operation.
+ *
+ * @param a    Vertex index.
+ * @param b    Vertex index.
+ */
 void Splitter::vunion (int a, int b) {
 
     int aroot = vroot(a);
@@ -261,6 +326,12 @@ void Splitter::vunion (int a, int b) {
 }
 
 
+/**
+ * Given an assimp format ID, return the preferred file extension.
+ *
+ * @param  format   Format ID.
+ * @return File extension without leading dot. "" if not found.
+ */
 static QString lookupExtensionForFormat (QString format) {
 
     static QString cachedFormat;
@@ -283,6 +354,16 @@ static QString lookupExtensionForFormat (QString format) {
 }
 
 
+/**
+ * Build an aiMesh that represents this component. This will copy the appropriate
+ * vertices and faces from the source mesh, remap indices as necessary and build
+ * an output mesh. The output mesh will have vertices and faces only (no normals,
+ * colors, materials, texture coords, etc.).
+ *
+ * @pre    The 'source', 'vertices', and 'faces' members are valid.
+ * @return A new aiMesh with the component model in it. The caller should delete
+ *         this when it is no longer needed.
+ */
 aiMesh * Component::buildSubMesh () const {
 
     aiMesh *mesh = new aiMesh();
@@ -318,6 +399,15 @@ aiMesh * Component::buildSubMesh () const {
 }
 
 
+/**
+ * Export this component to a file. The filename is determined from the
+ * provided option parameters. An overwrite prompt may be displayed.
+ *
+ * @pre   All preconditions for buildSubMesh().
+ * @param opts    Program options.
+ * @param sopts   Component-specific save options.
+ * @throw runtime_error if an error occurs.
+ */
 void Component::save (const Options &opts, const SaveOptions &sopts) const {
 
     // figure out the filename; there's two options (todo: command line param)
@@ -385,6 +475,12 @@ void Component::save (const Options &opts, const SaveOptions &sopts) const {
 }
 
 
+/**
+ * Update the number of items that we're handling. May show/update the
+ * progress dialog as a result.
+ *
+ * @param items Number of items.
+ */
 void ComplicatedProgress::updateCount (int items) {
 
     if (items >= 0) {
@@ -398,6 +494,13 @@ void ComplicatedProgress::updateCount (int items) {
 }
 
 
+/**
+ * Update the number of subitems that we've got for a given item. May
+ * show/update the progress dialog as a result.
+ *
+ * @param item      Item index. No-op if invalid.
+ * @param subcount  Number of subitems. No-op if negative.
+ */
 void ComplicatedProgress::updateSubCount (int item, int subcount) {
 
     if (item >= 0 && item < subcounts.size() && subcount >= 0) {
@@ -408,6 +511,9 @@ void ComplicatedProgress::updateSubCount (int item, int subcount) {
 }
 
 
+/**
+ * Set the progress indicator to 100%. May show the progress dialog.
+ */
 void ComplicatedProgress::setFinished () {
 
     setProgress(subcounts.size(), 0);
@@ -415,6 +521,13 @@ void ComplicatedProgress::setFinished () {
 }
 
 
+/**
+ * Set the progress indicator. May show the progress dialog.
+ *
+ * @param item    Index of item currently being processed.
+ * @param subitem Index of subitem currently being processed.
+ * @return Normally returns true; will return false if user pressed 'Cancel'.
+ */
 bool ComplicatedProgress::setProgress (int item, int subitem) {
 
     curitem = item;
@@ -449,6 +562,14 @@ bool ComplicatedProgress::setProgress (int item, int subitem) {
 }
 
 
+/**
+ * Check if a file looks more like STLA than STLB. Current algorithm just
+ * looks to see if the file starts with the string "solid". Utility function
+ * for guessInputFormat().
+ *
+ * @param filename Name of file.
+ * @return True if it might be STLA. False if it might not be.
+ */
 static bool looksLikeAsciiSTL (QString filename) {
 
     QFile in(filename);
@@ -462,6 +583,14 @@ static bool looksLikeAsciiSTL (QString filename) {
 }
 
 
+/**
+ * Check if a file looks more like PLYA than PLYB. Current algorithm looks
+ * for the PLY format header and checks if it contains the word "ascii".
+ * Utility function for guessInputFormat().
+ *
+ * @param filename Name of file.
+ * @return True if it might be PLYA. False if it might not be.
+ */
 static bool looksLikeAsciiPLY (QString filename) {
 
     QFile in(filename);
@@ -483,6 +612,15 @@ static bool looksLikeAsciiPLY (QString filename) {
 }
 
 
+/**
+ * Try to guess which assimp export format ID corresponds to the format of the
+ * given imported file.
+ *
+ * @param usedImporter   Importer that was used to import file.
+ * @param inputFilename  Name of imported file.
+ * @return A valid, non-empty export format ID, which may or may not have
+ *         anything to do with the actual input format. It tries, though.
+ */
 static QString guessInputFormat (const Assimp::Importer &usedImporter,
                                  QString inputFilename)
 {
@@ -541,6 +679,13 @@ static QString guessInputFormat (const Assimp::Importer &usedImporter,
 }
 
 
+/**
+ * Show a dialog allowing the user to choose from a list of output file
+ * formats supported by assimp.
+ *
+ * @param  initial  Format ID of initial selection (ignored if invalid).
+ * @return Selected export format ID, or "" if user cancelled.
+ */
 static QString pickOutputFormat (QString initial) {
 
     QMap<QString,QString> choicemap;
@@ -566,6 +711,15 @@ static QString pickOutputFormat (QString initial) {
 }
 
 
+/**
+ * Does most of the work. Given a set of command line options, do whatever it
+ * is this program is supposed to do. I'm not entirely sure how this function
+ * ended up at some random spot in the middle of this source file. I could've
+ * sworn it was closer to the bottom.
+ *
+ * @param opts_ Command line options.
+ * @throw runtime_error if an error occurs.
+ */
 static void splitModel (const Options &opts_) {
 
     Options opts = opts_;
@@ -649,6 +803,16 @@ static void splitModel (const Options &opts_) {
 }
 
 
+/**
+ * Given a proposed output filename, ask the user about overwriting it (if needed)
+ * and decide on the actual output filename. If a prompt is displayed it'll be the
+ * typical "yes" / "yes to all" / "no" / "no to all" / "cancel" dialog. If the user
+ * makes a "... to all" choice, it'll be remembered for next time and they won't
+ * be asked again.
+ *
+ * @param  filename  Proposed output filename.
+ * @return Actual output filename, or "" if user cancelled.
+ */
 QString OverwritePrompter::getFilename (QString filename) {
 
     QFileInfo info(filename);
@@ -702,13 +866,25 @@ QString OverwritePrompter::getFilename (QString filename) {
 
 
 #ifdef Q_OS_WIN
-static int setupShellMenus (bool install, bool elevate, bool showok) {
 
-    // bug (for now): if user does --register, then assimp drops support for an extension
-    // and user updates modelsplit, then does --unregister, the no-longer-supported extensions
-    // won't be cleaned up. until this happens, i'm not going to fix it (solution is to log
-    // changes somewhere then undo those on --unregister). for now i'll just make sure the
-    // installer reregisters things when appropriate and that should do it.
+/**
+ * Update the system registry to enable or disable the "Split 3D Model..." shell context
+ * menus. All file types that assimp can import will be updated here.
+ *
+ * @param install  True to enable menus, false to disable them.
+ * @param elevate  True to attempt to run as admin if registry edits fail.
+ * @param showok   True to show a dialog on success, false to be quiet about it.
+ * @return Process exit code.
+ * @bug   Sometimes the changes will have no effect for file extensions that already have
+ *        other info in the registry. Working on a fix, it's probably because I'm writing
+ *        verbs to the wrong place or something.
+ * @bug   If the menus are enabled, then assimp drops support for an extension and the
+ *        application is updated, then the menus are disabled, then the no-longer-supported
+ *        extensions won't be cleaned up. I probably won't fix this. The installer will
+ *        unregister the context menus before reinstall anyways, which should mitigate
+ *        this if it *does* happen.
+ */
+static int setupShellMenus (bool install, bool elevate, bool showok) {
 
     std::string extnstrs;
     Assimp::Importer().GetExtensionList(extnstrs);
@@ -734,7 +910,7 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
             cls.beginGroup(key);
             cls.beginGroup("shell");
             cls.beginGroup("ModelSplit.Split");
-            cls.setValue(".", "Split 3D Model...");
+            cls.setValue(".", QApplication::tr("Split 3D Model..."));
             cls.beginGroup("command");
             if (cls.value(".").toString() != command) {
                 qDebug().noquote() << pid << "setupShellMenus: registering menu for" << key;
@@ -785,9 +961,16 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
     return 0;
 
 }
+
 #endif
 
 
+/**
+ * Main entry point, does the usual -- parses command line parameters, etc.
+ * @param argc  Arrrrrrgh
+ * @param argv  ARRRRRRRRRRRRRGH
+ * @return      0 on success, 1 on error.
+ */
 int main (int argc, char *argv[]) {
 
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
@@ -826,7 +1009,7 @@ int main (int argc, char *argv[]) {
         return setupShellMenus(p.isSet("register"), p.isSet("elevate"), !p.isSet("quieter"));
 #endif
     else if (!parsed || p.positionalArguments().size() != 1)
-        p.showHelp();
+        p.showHelp(1);
 
     Options opts;
     opts.input = p.positionalArguments()[0];

@@ -95,5 +95,13 @@
         <source>Pick output format from dialog (overrides -f).</source>
         <translation></translation>
     </message>
+    <message>
+        <source>Split 3D Model...</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Don&apos;t show message box on success (for --[un]register).</source>
+        <translation></translation>
+    </message>
 </context>
 </TS>
