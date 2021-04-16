@@ -723,6 +723,7 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
     //QSettings cls("HKEY_CURRENT_USER\\SOFTWARE\\Classes", QSettings::NativeFormat);
     QSettings cls("HKEY_LOCAL_MACHINE\\SOFTWARE\\Classes\\SystemFileAssociations", QSettings::NativeFormat);
 
+    bool attemptedChanges = false;
     foreach (QString key, extns) {
         key = key.trimmed();
         if (!key.startsWith(".") || key.length() <= 1 || key.contains("/") || key.contains("\\")) {
@@ -735,9 +736,11 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
             cls.beginGroup("ModelSplit.Split");
             cls.setValue(".", "Split 3D Model...");
             cls.beginGroup("command");
-            if (cls.value(".").toString() != command)
+            if (cls.value(".").toString() != command) {
                 qDebug().noquote() << pid << "setupShellMenus: registering menu for" << key;
-            cls.setValue(".", command);
+                cls.setValue(".", command);
+                attemptedChanges = true;
+            }
             cls.endGroup();
             cls.endGroup();
             cls.endGroup();
@@ -750,6 +753,7 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
                 cls.beginGroup("ModelSplit.Split");
                 cls.remove("");
                 cls.endGroup();
+                attemptedChanges = true;
             }
             cls.endGroup();
             cls.endGroup();
@@ -757,9 +761,9 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
     }
 
     cls.sync();
-    qDebug() << pid << "setupShellMenus:" << cls.status();
+    qDebug() << pid << "setupShellMenus:" << cls.status() << "(attempted changes:" << attemptedChanges << ")";
 
-    if (cls.status() == QSettings::AccessError && elevate) {
+    if (cls.status() == QSettings::AccessError && elevate && attemptedChanges) {
         qWarning() << pid << "setupShellMenus: access denied, attempting to elevate...";
         //if (QProcess::execute("runas", { executable, install ? "--register" : "--unregister" }) < 0)
         //    QMessageBox::critical(nullptr, QString(), "Could not update registry: Failed elevation attempt.");
