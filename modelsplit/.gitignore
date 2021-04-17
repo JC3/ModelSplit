@@ -1,0 +1,9 @@
+debug/
+release/
+deploy/*
+!deploy/makedist.bat
+!deploy/installer.nsi
+docs/
+
+/modelsplit_resource.rc
+

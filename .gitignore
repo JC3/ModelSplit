@@ -1,13 +1,5 @@
-debug/
-release/
-deploy/*
-!deploy/makedist.bat
-!deploy/installer.nsi
 local/
-/splitme*
-docs/
-
-/modelsplit_resource.rc
+*~
 
 
 # C++ objects and libs
