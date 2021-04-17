@@ -307,7 +307,7 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
     }
 
     fprintf(csv, "\n\n");
-    fprintf(csv, ",importer,,,,exporter,,,,\n");
+    fprintf(csv, ",importer,,,exporter,,,,\n");
     fprintf(csv, ",index,name,extensions,index,id,name,extensions,\n");
 
     vector<ImporterInfo> importers = importers_;
