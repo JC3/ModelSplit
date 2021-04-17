@@ -22,6 +22,7 @@ Options:
   --register      Register shell context menus for model file types.
   --unregister    Deregister shell context menus created by --register.
   --elevate       Try to elevate to admin if [un]register fails.
+  --quieter       Don't show message box on success (for --[un]register).
 
 Arguments:
   input           Input file name.
