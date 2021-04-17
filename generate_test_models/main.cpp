@@ -1,3 +1,4 @@
+#include <cassert>
 #include <cstdio>
 #include <string>
 #include <list>
@@ -11,6 +12,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/cimport.h>
+#include <assimp/version.h>
 
 using namespace std;
 
@@ -93,6 +95,7 @@ struct ImportResult {
     aiScenePtr exported; // will be non-null even on failure so...
     bool exportSuccess;  // ...this will tell if it failed or not.
     string exportError;
+    list<string> exportedFiles;
 
     int importerIndex;
     const aiImporterDesc *importer;
@@ -104,6 +107,19 @@ struct ImportResult {
         testDescription(desc),
         exporterIndex(-1), exporter(nullptr), exportSuccess(false),
         importerIndex(-1), importer(nullptr), importPP(0) { }
+
+};
+
+
+struct ImporterInfo {
+
+    int importerIndex;
+    const aiImporterDesc *importer;
+    list<ImportResult> results;
+    set<int> exporters;
+
+    explicit ImporterInfo (int index) :
+        importerIndex(index), importer(aiGetImportFormatDescription(index)) { }
 
 };
 
@@ -120,12 +136,15 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
     filesystem::remove_all(EXPORT_TEST_PATH);
     filesystem::create_directory(EXPORT_TEST_PATH);
 
-    string filename = string(EXPORT_TEST_PATH) + "/model." + exporterDesc->fileExtension;
+    string filename = string(EXPORT_TEST_PATH) + "/scene." + exporterDesc->fileExtension;
 
     result.exporterIndex = exporterIndex;
     result.exporter = exporterDesc;
     result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename, 0) == AI_SUCCESS);
     result.exportError = nonull(exporter.GetErrorString());
+    std::transform(filesystem::directory_iterator(EXPORT_TEST_PATH), filesystem::directory_iterator(),
+                   std::back_inserter(result.exportedFiles),
+                   [] (auto &d) { return d.path().filename().string(); });
 
     if (result.exportSuccess) {
         importer.ReadFile(filename, importPP);
@@ -134,13 +153,169 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
         result.importer = aiGetImportFormatDescription(result.importerIndex);
         result.importPP = importPP;
         result.imported.reset(importer.GetOrphanedScene());
-        printf("exporter: %10s  importer: %s (%s)\n", exporterDesc->id, result.importer ? result.importer->mName : "none", result.imported ? "ok" : result.importError.c_str());
+        printf("exporter: %10s %s importer: %s (%s)\n", exporterDesc->id,
+               description.c_str(), result.importer ? result.importer->mName : "none",
+               result.imported ? "ok" : result.importError.c_str());
     } else {
-        printf("exporter: %10s (failed)\n", exporterDesc->id);
+        printf("exporter: %10s %s (failed: %s)\n", exporterDesc->id,
+               description.c_str(), result.exportError.c_str());
     }
 
     filesystem::remove_all(EXPORT_TEST_PATH);
     return result;
+
+}
+
+
+static void testExporter (vector<ImportResult> &appendTo, int exporterIndex) {
+
+    aiScenePtr oneMesh = buildScene(1);
+    aiScenePtr manyMeshes = buildScene(5);
+
+    appendTo.push_back(testExportImport("meshes=1, validation=no ", oneMesh, exporterIndex, 0));
+    appendTo.push_back(testExportImport("meshes=5, validation=no ", manyMeshes, exporterIndex, 0));
+    appendTo.push_back(testExportImport("meshes=1, validation=yes", oneMesh, exporterIndex, aiProcess_ValidateDataStructure));
+    appendTo.push_back(testExportImport("meshes=5, validation=yes", manyMeshes, exporterIndex, aiProcess_ValidateDataStructure));
+
+}
+
+
+static string quoteCSV (string value) {
+
+    string quoted;
+
+    for (int k = 0; k < value.size(); ++ k) {
+        if (value[k] == '\"')
+            quoted += "\"\"";
+        else
+            quoted += value[k];
+    }
+
+    return "\"" + quoted + "\"";
+
+}
+
+
+static string quoteCSV (const char *value) {
+
+    return quoteCSV(nonull(value));
+
+}
+
+
+static string numberOr (int number, string ifNegativeOne) {
+
+    if (number == -1)
+        return ifNegativeOne;
+    else {
+        char buf[100];
+        snprintf(buf, sizeof(buf), "%d", number);
+        return buf;
+    }
+
+}
+
+
+static bool isInteresting (const ImportResult &result) {
+
+    return
+            result.exporterIndex == -1 ||
+            !result.exportSuccess ||
+            result.importerIndex == -1 ||
+            !result.imported ||
+            result.imported->mFlags ||
+            !result.imported->HasMeshes();
+
+}
+
+
+static bool isInteresting (const ImporterInfo &importer) {
+
+    for (auto pr = importer.results.cbegin(); pr != importer.results.cend(); ++ pr)
+        if (isInteresting(*pr))
+            return true;
+
+    return importer.exporters.empty();
+
+}
+
+
+static bool writeReport (const char *filename, const vector<ImportResult> &results, const vector<ImporterInfo> &importers) {
+
+    printf("saving report to %s...\n", filename);
+
+    FILE *csv = fopen(filename, "wt");
+    if (!csv) {
+        perror("import_coverage.csv");
+        return false;
+    }
+
+    // we'll just put all tables in the same csv i can format it by
+    // hand afterwards, whatever.
+
+    fprintf(csv, ",assimp,%d.%d.%d\n\n",
+            aiGetVersionMajor(),
+            aiGetVersionMinor(),
+            aiGetVersionRevision());
+
+    fprintf(csv, ",exporter,,,,export operation,,,,importer,,,import operation,,,,\n");
+    fprintf(csv, ",index,id,description,extension,test,success?,message,files,index,description,extensions,success?,sceneflags,meshes,message,\n");
+
+    for (auto pr = results.begin(); pr != results.end(); ++ pr) {
+        string filenames;
+        for (auto pfn = pr->exportedFiles.begin(); pfn != pr->exportedFiles.end(); ++ pfn)
+            filenames += (pfn == pr->exportedFiles.begin() ? "" : ", ") + *pfn;
+        fprintf(csv, "%s,",
+                isInteresting(*pr) ? "*" : "");
+        fprintf(csv, "%d,%s,%s,%s,",
+                pr->exporterIndex,
+                quoteCSV(pr->exporter->id).c_str(),
+                quoteCSV(pr->exporter->description).c_str(),
+                quoteCSV(pr->exporter->fileExtension).c_str());
+        fprintf(csv, "%s,%s,%s,%s,",
+                quoteCSV(pr->testDescription).c_str(),
+                pr->exportSuccess ? "ok" : "failed",
+                quoteCSV(pr->exportError).c_str(),
+                quoteCSV(filenames).c_str());
+        fprintf(csv, "%d,%s,%s,",
+                pr->importerIndex /*numberOr(pr->importerIndex, "none").c_str() */,
+                pr->importer ? quoteCSV(pr->importer->mName).c_str() : "",
+                pr->importer ? quoteCSV(pr->importer->mFileExtensions).c_str() : "");
+        fprintf(csv, "%s,0x%08x,%d,%s,",
+                pr->imported ? "ok" : "failed",
+                pr->imported ? pr->imported->mFlags : 0,
+                pr->imported ? pr->imported->mNumMeshes : 0,
+                quoteCSV(pr->importError).c_str());
+        fprintf(csv, "\n");
+    }
+
+    fprintf(csv, "\n\n");
+    fprintf(csv, ",importer,,,,exporter,,,,\n");
+    fprintf(csv, ",index,name,extensions,index,id,name,extensions,\n");
+
+    for (auto pi = importers.begin(); pi != importers.end(); ++ pi) {
+        set<int> exporters = pi->exporters;
+        if (exporters.empty()) // make sure importers with no exporters are printed
+            exporters.insert(-1);
+        for (auto px = exporters.begin(); px != exporters.end(); ++ px) {
+            const aiExportFormatDesc *x = aiGetExportFormatDescription(*px);
+            fprintf(csv, "%s,",
+                    pi->exporters.empty() ? "-" : (isInteresting(*pi) ? "*" : ""));
+            fprintf(csv, "%d,%s,%s,",
+                    pi->importerIndex,
+                    quoteCSV(pi->importer->mName).c_str(),
+                    quoteCSV(pi->importer->mFileExtensions).c_str());
+            fprintf(csv, "%s,%s,%s,%s,",
+                    numberOr(*px, "").c_str(),
+                    x ? quoteCSV(x->id).c_str() : "",
+                    x ? quoteCSV(x->description).c_str() : "",
+                    x ? quoteCSV(x->fileExtension).c_str() : "");
+            fprintf(csv, "\n");
+        }
+    }
+
+    fclose(csv);
+    return true;
 
 }
 
@@ -151,128 +326,38 @@ int main (int argc, char * argv[]) {
 
     if (!strcmp(action, "import_coverage")) {
 
-        aiScenePtr scene = buildScene(1);
-        for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k) {
-            testExportImport("", scene, k, aiProcess_ValidateDataStructure);
-        }
+        vector<ImportResult> results;
+        for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k)
+            testExporter(results, k);
 
-/*
-        struct ImportResult {
-            bool success;
-            string errorMessage;
-            int importerIndex;
-            unsigned sceneFlags;
-            int meshes;
-        };
+        vector<ImporterInfo> importers;
+        for (unsigned k = 0; k < aiGetImportFormatCount(); ++ k)
+            importers.push_back(ImporterInfo(k));
 
-        struct Result {
-            int exporterIndex;
-            ImportResult loose1, loose3;
-            ImportResult strict1, strict3;
-        };
-
-        list<Result> results;
-
-        for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k) {
-            const aiExportFormatDesc *desc = aiGetExportFormatDescription(k);
-            char filename[100];
-            snprintf(filename, sizeof(filename), "~model_coverage_test.%s", desc->fileExtension);
-            fprintf(stderr, "[%-10s] testing...\n", desc->id);
-            Result result;
-            result.exporterIndex = k;
-            {
-                Assimp::Exporter exporter;
-                if (exporter.Export(buildScene(1), desc->id, filename) != AI_SUCCESS) {
-                    fprintf(stderr, "  export(1) error (%s): %s\n", desc->id, exporter.GetErrorString());
-                } else {
-                    unique_ptr<Assimp::Importer> importer;
-                    const aiScene *scene;
-                    importer.reset(new Assimp::Importer());
-                    scene = importer->ReadFile(filename, aiProcess_ValidateDataStructure);
-                    result.strict1.success = (scene != nullptr);
-                    result.strict1.errorMessage = nonull(importer->GetErrorString());
-                    result.strict1.importerIndex = importer->GetPropertyInteger("importerIndex", -1);
-                    result.strict1.sceneFlags = (scene ? scene->mFlags : 0);
-                    result.strict1.meshes = (scene ? scene->mNumMeshes : -1);
-                    importer.reset(new Assimp::Importer());
-                    scene = importer->ReadFile(filename, 0);
-                    result.loose1.success = (scene != nullptr);
-                    result.loose1.errorMessage = nonull(importer->GetErrorString());
-                    result.loose1.importerIndex = importer->GetPropertyInteger("importerIndex", -1);
-                    result.loose1.sceneFlags = (scene ? scene->mFlags : 0);
-                    result.loose1.meshes = (scene ? scene->mNumMeshes : -1);
-                }
+        for (auto presult = results.begin(); presult != results.end(); ++ presult) {
+            if (presult->importerIndex != -1) {
+                assert(presult->importerIndex >= 0 && presult->importerIndex < importers.size());
+                assert(presult->exporter != nullptr);
+                importers[presult->importerIndex].results.push_back(*presult);
+                importers[presult->importerIndex].exporters.insert(presult->exporterIndex);
             }
-            {
-                Assimp::Exporter exporter;
-                if (exporter.Export(buildScene(3), desc->id, filename) != AI_SUCCESS) {
-                    fprintf(stderr, "  export(3) error (%s): %s\n", desc->id, exporter.GetErrorString());
-                } else {
-                    unique_ptr<Assimp::Importer> importer;
-                    const aiScene *scene;
-                    importer.reset(new Assimp::Importer());
-                    scene = importer->ReadFile(filename, aiProcess_ValidateDataStructure);
-                    result.strict3.success = (scene != nullptr);
-                    result.strict3.errorMessage = nonull(importer->GetErrorString());
-                    result.strict3.importerIndex = importer->GetPropertyInteger("importerIndex", -1);
-                    result.strict3.sceneFlags = (scene ? scene->mFlags : 0);
-                    result.strict3.meshes = (scene ? scene->mNumMeshes : -1);
-                    importer.reset(new Assimp::Importer());
-                    scene = importer->ReadFile(filename, 0);
-                    result.loose3.success = (scene != nullptr);
-                    result.loose3.errorMessage = nonull(importer->GetErrorString());
-                    result.loose3.importerIndex = importer->GetPropertyInteger("importerIndex", -1);
-                    result.loose3.sceneFlags = (scene ? scene->mFlags : 0);
-                    result.loose3.meshes = (scene ? scene->mNumMeshes : -1);
-                }
-            }
-            results.push_back(result);
-            remove(filename);
         }
 
-        vector<vector<int> > exportersByImporter;
-        exportersByImporter.resize(aiGetImportFormatCount());
-
-        for (auto result = results.begin(); result != results.end(); ++ result) {
-            Result &r = *result;
-            const aiExportFormatDesc *exdesc = aiGetExportFormatDescription(r.exporterIndex);
-            printf("exporter: [%s] %s (.%s)\n", exdesc->id, exdesc->description, exdesc->fileExtension);
-            printf("   1 mesh, no validation: success=%s meshes=%d flags=%08x error='%s' importer=%d\n",
-                   r.loose1.success ? "yes" : "no", r.loose1.meshes, r.loose1.sceneFlags, r.loose1.errorMessage.c_str(), r.loose1.importerIndex);
-            printf("   1 mesh, validation   : success=%s meshes=%d flags=%08x error='%s' importer=%d\n",
-                   r.strict1.success ? "yes" : "no", r.strict1.meshes, r.strict1.sceneFlags, r.strict1.errorMessage.c_str(), r.strict1.importerIndex);
-            printf("   3 mesh, no validation: success=%s meshes=%d flags=%08x error='%s' importer=%d\n",
-                   r.loose3.success ? "yes" : "no", r.loose3.meshes, r.loose3.sceneFlags, r.loose3.errorMessage.c_str(), r.loose3.importerIndex);
-            printf("   3 mesh, validation   : success=%s meshes=%d flags=%08x error='%s' importer=%d\n",
-                   r.strict3.success ? "yes" : "no", r.strict3.meshes, r.strict3.sceneFlags, r.strict3.errorMessage.c_str(), r.strict3.importerIndex);
-            set<int> importerIndices;
-            importerIndices.insert(r.loose1.importerIndex);
-            importerIndices.insert(r.strict1.importerIndex);
-            importerIndices.insert(r.loose3.importerIndex);
-            importerIndices.insert(r.strict3.importerIndex);
-            importerIndices.erase(-1);
-            if (importerIndices.size() > 1)
-                printf("   *** more than one importer used? ***\n");
-            else if (importerIndices.empty())
-                printf("   *** all imports failed ***\n");
-            else
-                exportersByImporter[*importerIndices.begin()].push_back(r.exporterIndex);
-        }
-
-
-        for (int k = 0; k < aiGetImportFormatCount(); ++ k) {
-            const aiImporterDesc *imdesc = aiGetImportFormatDescription(k);
-            const vector<int> &exporters = exportersByImporter[k];
-            if (exporters.empty()) {
-                printf("--- %s: no matching exporters\n", imdesc->mName);
-            } else {
-                for (int j = 0; j < exporters.size(); ++ j) {
-                    const aiExportFormatDesc *exdesc = aiGetExportFormatDescription(exporters[j]);
-                    printf("+++ %s: imports from %s (%s)\n", imdesc->mName, exdesc->id, exdesc->description);
+        for (auto pimporter = importers.begin(); pimporter != importers.end(); ++ pimporter) {
+            if (pimporter->exporters.empty())
+                printf("--- importer: %s (no matching exporters)\n", pimporter->importer->mName);
+            else {
+                for (auto pexporter = pimporter->exporters.begin(); pexporter != pimporter->exporters.end(); ++ pexporter) {
+                    const aiExportFormatDesc *exporter = aiGetExportFormatDescription(*pexporter);
+                    printf("+++ importer: %s <- [%s] %s (.%s)\n", pimporter->importer->mName,
+                           exporter->id, exporter->description, exporter->fileExtension);
                 }
             }
         }
-*/
+
+        if (!writeReport("importer_coverage.csv", results, importers))
+            return 1;
+
     } else if (!*action) {
 
         for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k) {
