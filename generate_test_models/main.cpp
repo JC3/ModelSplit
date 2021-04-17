@@ -240,7 +240,24 @@ static bool isInteresting (const ImporterInfo &importer) {
 }
 
 
-static bool writeReport (const char *filename, const vector<ImportResult> &results, const vector<ImporterInfo> &importers) {
+/*
+static bool ImporterNameAscending (const ImporterInfo &a, const ImporterInfo &b) {
+
+    if (a.importerIndex == b.importerIndex)
+        return false;
+    else if (a.importerIndex == -1 || !a.importer)
+        return true;
+    else {
+        assert(a.importer);
+        assert(b.importer);
+        return strcmp(a.importer->mName, b.importer->mName) < 0;
+    }
+
+}
+*/
+
+
+static bool writeReport (const char *filename, const vector<ImportResult> &results, const vector<ImporterInfo> &importers_) {
 
     printf("saving report to %s...\n", filename);
 
@@ -292,6 +309,9 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
     fprintf(csv, "\n\n");
     fprintf(csv, ",importer,,,,exporter,,,,\n");
     fprintf(csv, ",index,name,extensions,index,id,name,extensions,\n");
+
+    vector<ImporterInfo> importers = importers_;
+    //stable_sort(importers.begin(), importers.end(), ImporterNameAscending);
 
     for (auto pi = importers.begin(); pi != importers.end(); ++ pi) {
         set<int> exporters = pi->exporters;
