@@ -24,7 +24,7 @@
 #
 # --------------------------------------------------------------------------
 
-VERSION = 0.9.0.2
+VERSION = 1.0.0.4
 
 QT       += core gui
 
@@ -68,4 +68,4 @@ win32: DEPENDPATH += $$ASSIMP_ARCH_PATH/include
 
 INCLUDEPATH += $$EXTLIB_PATH/assimp-5.0.1/common/include
 DEPENDPATH += $$EXTLIB_PATH/3rdparty/assimp-5.0.1/common/include
-QMAKE_CXXFLAGS += /FC
+win32-msvc*:QMAKE_CXXFLAGS += /FC

@@ -52,83 +52,88 @@
         <translation>El archivo existe. ¿Sobrescribir?</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="913"/>
+        <location filename="main.cpp" line="914"/>
         <source>Split 3D Model...</source>
         <translation>Dividir Modelo 3D...</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="947"/>
+        <location filename="main.cpp" line="949"/>
         <source>Could not update registry: Failed to run elevated process.</source>
         <translation>No se puede actualizar el Registro del sistema: ShellExecuteW ha fallado.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="951"/>
+        <location filename="main.cpp" line="953"/>
         <source>Shell context menus updated.</source>
         <translation>Menús contextuales del Explorador se han actualizado.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="953"/>
+        <location filename="main.cpp" line="955"/>
         <source>Could not update registry: Access denied.</source>
         <translation>No se puede actualizar el Registro del sistema: Acceso denegado.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="955"/>
+        <location filename="main.cpp" line="957"/>
         <source>Could not update registry.</source>
         <translation>No se puede actualizar el Registro del sistema.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="989"/>
+        <location filename="main.cpp" line="991"/>
         <source>Input file name.</source>
         <translation>Nombre de archivo de entrada.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="989"/>
+        <location filename="main.cpp" line="991"/>
         <source>input</source>
         <translation>entrada</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="991"/>
+        <location filename="main.cpp" line="993"/>
         <source>Do not unify duplicate vertices.</source>
         <translatorcomment>Unsure of verb conjugation (formal vs. informal?)</translatorcomment>
         <translation>No unifique vértices duplicados.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="992"/>
+        <location filename="main.cpp" line="994"/>
         <source>Always overwrite, don&apos;t prompt.</source>
         <translation>Sobrescribir archivos existentes.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="993"/>
+        <location filename="main.cpp" line="995"/>
         <source>Never overwrite, don&apos;t prompt (overrides -y).</source>
         <translation>No sobrescriba archivos existentes (esto anula &quot;-y&quot;).</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="994"/>
+        <location filename="main.cpp" line="996"/>
         <source>Output format (default is same as input, or OBJ if unsupported).</source>
         <translation>Formato de salida (defecto: formato de entrada, u OBJ).</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="995"/>
+        <location filename="main.cpp" line="997"/>
         <source>Pick output format from dialog (overrides -f).</source>
         <translation>Elija el formato de salida de la GUI (esto anula &quot;-f&quot;).</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="997"/>
+        <location filename="main.cpp" line="999"/>
         <source>Register shell context menus for model file types.</source>
         <translation>Habilite los menús contextuales del Explorador.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="998"/>
+        <location filename="main.cpp" line="1000"/>
+        <source>Specify extra modelsplit command line params for --register.</source>
+        <translation>Parámetros adicionales de la línea de comandos de modelsplit para usar con &quot;--register&quot;.</translation>
+    </message>
+    <message>
+        <location filename="main.cpp" line="1001"/>
         <source>Deregister shell context menus created by --register.</source>
         <translation>Deshabilite los menús contextuales del Explorador.</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="999"/>
+        <location filename="main.cpp" line="1002"/>
         <source>Try to elevate to admin if [un]register fails.</source>
         <translation>Ejecutar como administrador si es necesario (para &quot;--[un]register&quot;).</translation>
     </message>
     <message>
-        <location filename="main.cpp" line="1000"/>
+        <location filename="main.cpp" line="1003"/>
         <source>Don&apos;t show message box on success (for --[un]register).</source>
         <translation>No muestre un cuadro de mensaje a menos que se produzca un error (para &quot;--[un]register&quot;).</translation>
     </message>

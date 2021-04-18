@@ -872,19 +872,17 @@ QString OverwritePrompter::getFilename (QString filename) {
  * menus. All file types that assimp can import will be updated here.
  *
  * @param install  True to enable menus, false to disable them.
+ * @param verbcl   Extra command line params to add to verb command. Ignored if !install.
  * @param elevate  True to attempt to run as admin if registry edits fail.
  * @param showok   True to show a dialog on success, false to be quiet about it.
  * @return Process exit code.
- * @bug   Sometimes the changes will have no effect for file extensions that already have
- *        other info in the registry. Working on a fix, it's probably because I'm writing
- *        verbs to the wrong place or something.
  * @bug   If the menus are enabled, then assimp drops support for an extension and the
  *        application is updated, then the menus are disabled, then the no-longer-supported
  *        extensions won't be cleaned up. I probably won't fix this. The installer will
  *        unregister the context menus before reinstall anyways, which should mitigate
  *        this if it *does* happen.
  */
-static int setupShellMenus (bool install, bool elevate, bool showok) {
+static int setupShellMenus (bool install, QString verbcl, bool elevate, bool showok) {
 
     std::string extnstrs;
     Assimp::Importer().GetExtensionList(extnstrs);
@@ -892,11 +890,14 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
 
     QString executable = QFileInfo(QApplication::applicationFilePath()).canonicalFilePath();
     executable = QDir::toNativeSeparators(executable);
-    //QString command = QString("\"%1\" \"%2\"").arg(executable, "%1");
-    QString command = QString("\"%1\" \"%2\" -f objnomtl -F").arg(executable, "%1");
+    QString command = QString("\"%1\" \"%2\" %3").arg(executable, "%1", verbcl).trimmed();
     qint64 pid = QApplication::applicationPid(); // for logging
 
-    //QSettings cls("HKEY_CURRENT_USER\\SOFTWARE\\Classes", QSettings::NativeFormat);
+    if (install)
+        qDebug().noquote() << pid << "setupShellMenus: install:" << command;
+    else
+        qDebug().noquote() << pid << "setupShellMenus: uninstall";
+
     QSettings cls("HKEY_LOCAL_MACHINE\\SOFTWARE\\Classes\\SystemFileAssociations", QSettings::NativeFormat);
 
     bool attemptedChanges = false;
@@ -943,10 +944,11 @@ static int setupShellMenus (bool install, bool elevate, bool showok) {
         qWarning() << pid << "setupShellMenus: access denied, attempting to elevate...";
         //if (QProcess::execute("runas", { executable, install ? "--register" : "--unregister" }) < 0)
         //    QMessageBox::critical(nullptr, QString(), "Could not update registry: Failed elevation attempt.");
-        if (PtrToInt(ShellExecuteW(NULL, L"runas", executable.toStdWString().c_str(), install ? L"--register" : L"--unregister", NULL, SW_SHOW)) <= 32)
+        QString parameters = QString("%1 --regopts \"%2\"").arg(install ? "--register" : "--unregister", verbcl);
+        if (PtrToInt(ShellExecuteW(NULL, L"runas", executable.toStdWString().c_str(), parameters.toStdWString().c_str(), NULL, SW_SHOW)) <= 32)
             QMessageBox::critical(nullptr, QString(), QApplication::tr("Could not update registry: Failed to run elevated process."));
     } else {
-        if (cls.status() == QSettings::NoError) {
+        if (cls.status() == QSettings::NoError || !attemptedChanges) {
             if (showok)
                 QMessageBox::information(nullptr, QString(), QApplication::tr("Shell context menus updated."));
         } else if (cls.status() == QSettings::AccessError) {
@@ -995,6 +997,7 @@ int main (int argc, char *argv[]) {
                     ,{ "F", QApplication::tr("Pick output format from dialog (overrides -f).") }
 #ifdef Q_OS_WIN
                     ,{ "register", QApplication::tr("Register shell context menus for model file types.") }
+                    ,{ "regopts", QApplication::tr("Specify extra modelsplit command line params for --register."), "regopts" }
                     ,{ "unregister", QApplication::tr("Deregister shell context menus created by --register.") }
                     ,{ "elevate", QApplication::tr("Try to elevate to admin if [un]register fails.") }
                     ,{ "quieter", QApplication::tr("Don't show message box on success (for --[un]register).") }
@@ -1006,7 +1009,7 @@ int main (int argc, char *argv[]) {
         p.process(a);
 #ifdef Q_OS_WIN
     else if (parsed && (p.isSet("register") || p.isSet("unregister")))
-        return setupShellMenus(p.isSet("register"), p.isSet("elevate"), !p.isSet("quieter"));
+        return setupShellMenus(p.isSet("register"), p.value("regopts"), p.isSet("elevate"), !p.isSet("quieter"));
 #endif
     else if (!parsed || p.positionalArguments().size() != 1)
         p.showHelp(1);

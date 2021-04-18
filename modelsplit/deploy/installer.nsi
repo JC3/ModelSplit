@@ -32,7 +32,7 @@
 
 ; HM NIS Edit Wizard helper defines
 !define PRODUCT_NAME "Model Splitter"
-!define PRODUCT_VERSION "0.9.0"
+!define PRODUCT_VERSION "1.0.0"
 !define PRODUCT_PUBLISHER "Jason C"
 !define PRODUCT_WEB_SITE "https://github.com/JC3/ModelSplit"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\modelsplit.exe"
@@ -76,7 +76,7 @@ var ICONS_GROUP
 !insertmacro MUI_PAGE_INSTFILES
 ; Finish page
 !define MUI_FINISHPAGE_RUN "$INSTDIR\modelsplit.exe"
-!define MUI_FINISHPAGE_RUN_PARAMETERS "--register --elevate"
+!define MUI_FINISHPAGE_RUN_PARAMETERS "--register --elevate --regopts $\"-F$\""
 !define MUI_FINISHPAGE_RUN_TEXT "Register Explorer context menus"
 !define MUI_FINISHPAGE_LINK "Visit project on GitHub"
 !define MUI_FINISHPAGE_LINK_LOCATION "${PRODUCT_WEB_SITE}"
@@ -141,7 +141,8 @@ Section "Model Splitter" SEC01
 ; Shortcuts
   !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
   CreateDirectory "$SMPROGRAMS\$ICONS_GROUP"
-  CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Register Explorer Context Menus.lnk" "$INSTDIR\modelsplit.exe" "--register --elevate"
+  CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Register Explorer Context Menus (With -F).lnk" "$INSTDIR\modelsplit.exe" "--register --elevate --regopts $\"-F$\""
+  CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Register Explorer Context Menus (Without -F).lnk" "$INSTDIR\modelsplit.exe" "--register --elevate"
   CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Unregister Explorer Context Menus.lnk" "$INSTDIR\modelsplit.exe" "--unregister --elevate"
   !insertmacro MUI_STARTMENU_WRITE_END
 SectionEnd
@@ -211,6 +212,8 @@ Section Uninstall
   Delete "$SMPROGRAMS\$ICONS_GROUP\Uninstall.lnk"
   Delete "$SMPROGRAMS\$ICONS_GROUP\Website.lnk"
   Delete "$SMPROGRAMS\$ICONS_GROUP\Unregister Explorer Context Menus.lnk"
+  Delete "$SMPROGRAMS\$ICONS_GROUP\Register Explorer Context Menus (With -F).lnk"
+  Delete "$SMPROGRAMS\$ICONS_GROUP\Register Explorer Context Menus (Without -F).lnk"
   Delete "$SMPROGRAMS\$ICONS_GROUP\Register Explorer Context Menus.lnk"
 
   RMDir "$SMPROGRAMS\$ICONS_GROUP"

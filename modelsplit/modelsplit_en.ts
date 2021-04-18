@@ -103,5 +103,9 @@
         <source>Don&apos;t show message box on success (for --[un]register).</source>
         <translation></translation>
     </message>
+    <message>
+        <source>Specify extra modelsplit command line params for --register.</source>
+        <translation></translation>
+    </message>
 </context>
 </TS>
