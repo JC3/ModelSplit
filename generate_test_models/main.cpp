@@ -378,6 +378,18 @@ int main (int argc, char * argv[]) {
         if (!writeReport("importer_coverage.csv", results, importers))
             return 1;
 
+    } else if (!strcmp(action, "dummy_files")) {
+
+        aiString extns;
+        aiGetExtensionList(&extns);
+
+        for (char *token = strtok(extns.data, " ;*"); token; token = strtok(nullptr, " ;*")) {
+            string filename = "dummy";
+            filename += token;
+            printf("[%-10s]: %s\n", token, filename.c_str());
+            fclose(fopen(filename.c_str(), "a"));
+        }
+
     } else if (!*action) {
 
         for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k) {
@@ -396,6 +408,7 @@ int main (int argc, char * argv[]) {
         fprintf(stderr, "actions:\n\n"
                         "  (default)         generate test models\n"
                         "  import_coverage   find importer / exporter associations\n"
+                        "  dummy_files       generate dummy files for all extensions\n"
                         "\n");
         return 1;
 
