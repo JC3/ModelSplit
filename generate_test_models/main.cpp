@@ -18,6 +18,8 @@ using namespace std;
 
 typedef std::shared_ptr<aiScene> aiScenePtr;
 
+#define PRESERVE_IMPORT_TEST_MODELS 0
+
 
 static void setFace (aiFace &face, unsigned a, unsigned b, unsigned c) {
 
@@ -134,15 +136,24 @@ struct ImporterInfo {
 
 static ImportResult testExportImport (string description, aiScenePtr scene, int exporterIndex, unsigned importPP) {
 
-    static const char EXPORT_TEST_PATH[] = "~import_coverage_dir";
+    static const char EXPORT_TEST_PATH_[] = "~import_coverage_dir";
 
     const aiExportFormatDesc *exporterDesc = aiGetExportFormatDescription(exporterIndex);
     Assimp::Exporter exporter;
     Assimp::Importer importer;
     ImportResult result(description);
 
+#if PRESERVE_IMPORT_TEST_MODELS
+    string descriptiondir;
+    for (auto ch = description.cbegin(); ch != description.cend(); ++ ch)
+        descriptiondir += isalnum(*ch) ? *ch : '_';
+    string EXPORT_TEST_PATH = string(EXPORT_TEST_PATH_) + "/" + descriptiondir + "/" + exporterDesc->id;
+#else
+    static const char *EXPORT_TEST_PATH = EXPORT_TEST_PATH_;
+#endif
+
     filesystem::remove_all(EXPORT_TEST_PATH);
-    filesystem::create_directory(EXPORT_TEST_PATH);
+    filesystem::create_directories(EXPORT_TEST_PATH);
 
     string filename = string(EXPORT_TEST_PATH) + "/scene." + exporterDesc->fileExtension;
 
@@ -169,7 +180,9 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
                description.c_str(), result.exportError.c_str());
     }
 
+#if !PRESERVE_IMPORT_TEST_MODELS
     filesystem::remove_all(EXPORT_TEST_PATH);
+#endif
     return result;
 
 }
