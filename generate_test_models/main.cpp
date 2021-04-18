@@ -35,7 +35,7 @@ static void setFace (aiFace &face, unsigned a, unsigned b, unsigned c) {
 
 
 /** Makes a tetrahedron in bounding box (-1,-1,-1) -> ( 1, 1, 1), translated. */
-static aiMesh * buildObject (ai_real x, ai_real y = 0, ai_real z = 0) {
+static aiMesh * buildObject (bool normals, ai_real x, ai_real y = 0, ai_real z = 0) {
 
     aiMesh *mesh = new aiMesh();
 
@@ -46,6 +46,9 @@ static aiMesh * buildObject (ai_real x, ai_real y = 0, ai_real z = 0) {
     mesh->mVertices[2].Set(-1, -1, 1);
     mesh->mVertices[3].Set(1, -1, -1);
 
+    if (normals)
+        mesh->mNormals = new aiVector3D[4];
+
     mesh->mNumFaces = 4;
     mesh->mFaces = new aiFace[4];
     setFace(mesh->mFaces[0], 0, 1, 2);
@@ -53,8 +56,13 @@ static aiMesh * buildObject (ai_real x, ai_real y = 0, ai_real z = 0) {
     setFace(mesh->mFaces[2], 0, 3, 1);
     setFace(mesh->mFaces[3], 3, 2, 1);
 
-    for (unsigned k = 0; k < mesh->mNumVertices; ++ k)
+    for (unsigned k = 0; k < mesh->mNumVertices; ++ k) {
+        if (normals) {
+            mesh->mNormals[k] = mesh->mVertices[k];
+            mesh->mNormals[k].Normalize();
+        }
         mesh->mVertices[k] += aiVector3D(x, y, z);
+    }
 
     return mesh;
 
@@ -119,11 +127,11 @@ static aiScenePtr buildScene (const vector<aiMesh *> &meshes) {
 }
 
 
-static aiScenePtr buildScene (int nobjects = 3) {
+static aiScenePtr buildScene (int nobjects = 3, bool normals = false) {
 
     vector<aiMesh *> objects;
     for (int k = 0; k < nobjects; ++ k)
-        objects.push_back(buildObject((ai_real)2.5 * k));
+        objects.push_back(buildObject(normals, (ai_real)2.5 * k));
 
     return buildScene(objects);
 
@@ -505,7 +513,7 @@ int main (int argc, char * argv[]) {
             snprintf(filename, sizeof(filename), "model-%02d-%s.%s", k, desc->id, desc->fileExtension);
             printf("[%-10s] %s...\n", desc->id, filename);
             Assimp::Exporter exporter;
-            if (exporter.Export(buildScene(3).get(), desc->id, filename) != AI_SUCCESS)
+            if (exporter.Export(buildScene(3, true).get(), desc->id, filename) != AI_SUCCESS)
                 fprintf(stderr, "  error: %s\n", exporter.GetErrorString());
         }
 
