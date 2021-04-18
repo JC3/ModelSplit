@@ -20,8 +20,6 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 
 #define TEST_LARGE_MODELS     1
 #define LARGE_MODEL_FACES     1000000
-// todo: optimize for memory usage by not storing large scenes in test result structs.
-// each import test will leave a copy or two of large model laying around.
 
 
 static void setFace (aiFace &face, unsigned a, unsigned b, unsigned c) {
@@ -149,6 +147,30 @@ static string nonull (const char *str) {
 }
 
 
+// this is a hacky drop-in replacement for aiScenePtr in ImportResult meant as
+// a quick memory optimization after large model tests were added. it just
+// lets the imported scene be freed and was able to be added without me having
+// to really mess with any other code.
+struct SceneGhost {
+
+    bool nullScene;
+    unsigned mFlags;
+    unsigned mNumMeshes;
+
+    SceneGhost () : nullScene(true) { }
+    const SceneGhost * operator -> () const { return this; }
+    operator bool () const { return !nullScene; }
+
+    void reset (aiScene *scene) {
+        nullScene = !scene;
+        mFlags = scene ? scene->mFlags : 0;
+        mNumMeshes = scene ? scene->mNumMeshes : 0;
+        delete scene;
+    }
+
+};
+
+
 struct ImportResult {
 
     string testDescription;
@@ -163,7 +185,8 @@ struct ImportResult {
     int importerIndex;
     const aiImporterDesc *importer;
     unsigned importPP;
-    aiScenePtr imported; // null on failure.
+    //aiScenePtr imported; // null on failure.
+    SceneGhost imported;
     string importError;
 
     explicit ImportResult (string desc) :
@@ -299,7 +322,7 @@ static bool isInteresting (const ImportResult &result) {
             result.importerIndex == -1 ||
             !result.imported ||
             result.imported->mFlags ||
-            !result.imported->HasMeshes();
+            !result.imported->mNumMeshes;
 
 }
 
