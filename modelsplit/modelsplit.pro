@@ -59,7 +59,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 EXTLIB_PATH = $$PWD/../3rdparty
-ASSIMP_PATH = $$EXTLIB_PATH/assimp-5.0.1
+ASSIMP_PATH = $$EXTLIB_PATH/assimp
 ASSIMP_ARCH_PATH = $$ASSIMP_PATH/$${QMAKE_HOST.os}-$${QMAKE_HOST.arch}-release
 
 win32: LIBS += -L$$ASSIMP_ARCH_PATH/bin/ -lassimp-vc142-mt
