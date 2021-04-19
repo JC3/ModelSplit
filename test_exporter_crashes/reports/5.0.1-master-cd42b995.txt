@@ -1,0 +1,27 @@
+assimp version: 5.0.1 @ master cd42b995
+no model file specified, will generate a scene.
+[collada   ] pass
+[x         ] pass
+[stp       ] pass
+[obj       ] pass
+[objnomtl  ] pass
+[stl       ] pass
+[stlb      ] pass
+[ply       ] pass
+[plyb      ] pass
+[3ds       ] ai_assert failure in C:\Users\jason\Packages\assimp-git\code\PostProcessing\SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes
+[gltf2     ] ai_assert failure in C:\Users\jason\Packages\assimp-git\code\PostProcessing\SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes
+[glb2      ] ai_assert failure in C:\Users\jason\Packages\assimp-git\code\PostProcessing\SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes
+[gltf      ] ai_assert failure in C:\Users\jason\Packages\assimp-git\code\PostProcessing\SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes
+[glb       ] ai_assert failure in C:\Users\jason\Packages\assimp-git\code\PostProcessing\SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes
+[assbin    ] pass
+[assxml    ] pass
+[x3d       ] pass
+[fbx       ] pass
+[fbxa      ] pass
+[m3d       ] pass
+[m3da      ] export failed: Assimp configured without M3D_ASCII support
+[3mf       ] pass
+[pbrt      ] ai_assert failure in C:\Users\jason\Packages\assimp-git\code\PostProcessing\SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes
+[assjson   ] pass
+tests: 24, passes: 17, fails: 7

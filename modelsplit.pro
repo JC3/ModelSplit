@@ -2,4 +2,5 @@ TEMPLATE = subdirs
 
 SUBDIRS += \
     generate_test_models \
-    modelsplit
+    modelsplit \
+    test_exporter_crashes
