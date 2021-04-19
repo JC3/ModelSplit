@@ -59,13 +59,13 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 EXTLIB_PATH = $$PWD/../3rdparty
-ASSIMP_ARCH_PATH = $$EXTLIB_PATH/assimp-5.0.1/$${QMAKE_HOST.os}-$${QMAKE_HOST.arch}-release
+ASSIMP_PATH = $$EXTLIB_PATH/assimp-5.0.1
+ASSIMP_ARCH_PATH = $$ASSIMP_PATH/$${QMAKE_HOST.os}-$${QMAKE_HOST.arch}-release
 
-win32: RC_ICONS = icon.ico
 win32: LIBS += -L$$ASSIMP_ARCH_PATH/bin/ -lassimp-vc142-mt
 win32: INCLUDEPATH += $$ASSIMP_ARCH_PATH/include
 win32: DEPENDPATH += $$ASSIMP_ARCH_PATH/include
 
-INCLUDEPATH += $$EXTLIB_PATH/assimp-5.0.1/common/include
-DEPENDPATH += $$EXTLIB_PATH/3rdparty/assimp-5.0.1/common/include
+INCLUDEPATH += $$ASSIMP_PATH/common/include
+DEPENDPATH += $$ASSIMP_PATH/common/include
 win32-msvc*:QMAKE_CXXFLAGS += /FC
