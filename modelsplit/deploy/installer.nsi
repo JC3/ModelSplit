@@ -60,6 +60,7 @@ SetCompressor /SOLID lzma
 ; License page
 !define MUI_LICENSEPAGE_BUTTON
 !insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_LICENSE "LICENSE-ASSIMP"
 ; Components page
 !insertmacro MUI_PAGE_COMPONENTS
 ; Directory page
@@ -121,6 +122,8 @@ Section "Model Splitter" SEC01
   SetOutPath "$INSTDIR"
   File "assimp-vc142-mt.dll"
   File "/oname=LICENSE.txt" "LICENSE"
+  File "/oname=LICENSE-ASSIMP.txt" "LICENSE-ASSIMP"
+  File "/oname=CREDITS-ASSIMP.txt" "CREDITS-ASSIMP"
   File "modelsplit.exe"
   File "Qt5Core.dll"
   File "Qt5Gui.dll"

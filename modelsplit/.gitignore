@@ -3,6 +3,7 @@ release/
 deploy/*
 !deploy/makedist.bat
 !deploy/installer.nsi
+!deploy/distclean.bat
 docs/
 
 /modelsplit_resource.rc

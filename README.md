@@ -11,3 +11,9 @@ Splits 3D model files into connected components. Current implementation is inten
 This takes, as input, a 3D model file (in any format supported by *libassimp*), splits isolated components and produces, as output, a new file for each component. 
 
 See *modelsplit/README.md* for more info.
+
+---
+
+*Model Split, Copyright (c) 2021, Jason Cipriani, All rights reserved.*
+*Open Asset Import Library (assimp), Copyright (c) 2006-2021, assimp team, All rights reserved.*
+*Poly2Tri Copyright (c) 2009-2010, Poly2Tri Contributors, http://code.google.com/p/poly2tri/, All rights reserved.*
