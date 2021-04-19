@@ -18,6 +18,8 @@ using namespace std;
 
 typedef std::shared_ptr<aiScene> aiScenePtr;
 
+#define TEST_LARGE_MODELS     1
+#define LARGE_MODEL_FACES     1000000
 #define PRESERVE_IMPORT_TEST_MODELS 0
 
 
@@ -68,32 +70,114 @@ static aiMesh * buildObject (bool normals, ai_real x, ai_real y = 0, ai_real z =
 }
 
 
-static aiScenePtr buildScene (int nobjects = 3, bool normals = false) {
+#if TEST_LARGE_MODELS
+// makes a really long triangle strip
+static aiMesh * buildLargeObject (unsigned faces) {
+
+    printf("buildLargeObject: generating %d faces...\n", faces);
+    aiMesh *mesh = new aiMesh();
+
+    mesh->mNumVertices = faces + 2;
+    mesh->mVertices = new aiVector3D[mesh->mNumVertices];
+
+    unsigned bottomv = (faces + 1) / 2 + 1;
+    for (unsigned v = 0; v < bottomv; ++ v)
+        mesh->mVertices[v].Set((ai_real)v, -0.5f, 0);
+    for (unsigned v = bottomv; v < mesh->mNumVertices; ++ v)
+        mesh->mVertices[v].Set(0.5f + v - bottomv, 0.5f, 0);
+
+    mesh->mNumFaces = faces;
+    mesh->mFaces = new aiFace[faces];
+
+    for (unsigned f = 0; f < faces; ++ f) {
+        if (!(f % 2))
+            setFace(mesh->mFaces[f], f / 2, f / 2 + 1, f / 2 + bottomv);
+        else
+            setFace(mesh->mFaces[f], f / 2 + bottomv, (f + 1) / 2, f / 2 + 1 + bottomv);
+    }
+
+    printf("buildLargeObject: done\n");
+    return mesh;
+
+}
+#endif
+
+
+// returned scene will have ownership of supplies meshes after this.
+static aiScenePtr buildScene (const vector<aiMesh *> &meshes) {
 
     aiScenePtr scene(new aiScene());
 
-    scene->mNumMeshes = nobjects;
-    scene->mMeshes = new aiMesh *[nobjects];
+    scene->mNumMeshes = (unsigned)meshes.size();
+    scene->mMeshes = new aiMesh *[scene->mNumMeshes];
     scene->mNumMaterials = 1;
     scene->mMaterials = new aiMaterial *[1];
     scene->mMaterials[0] = new aiMaterial();
     scene->mRootNode = new aiNode();
-    scene->mRootNode->mNumMeshes = nobjects;
-    scene->mRootNode->mMeshes = new unsigned[nobjects];
+    scene->mRootNode->mNumMeshes = scene->mNumMeshes;
+    scene->mRootNode->mMeshes = new unsigned[scene->mNumMeshes];
 
-    for (int k = 0; k < nobjects; ++ k) {
-        scene->mMeshes[k] = buildObject(normals, (ai_real)2.5 * k);
+    for (unsigned k = 0; k < scene->mNumMeshes; ++ k) {
+        scene->mMeshes[k] = meshes[k];
         scene->mRootNode->mMeshes[k] = k;
     }
 
     return scene;
 
+
 }
+
+
+static aiScenePtr buildScene (int nobjects = 3, bool normals = false) {
+
+    vector<aiMesh *> objects;
+    for (int k = 0; k < nobjects; ++ k)
+        objects.push_back(buildObject(normals, (ai_real)2.5 * k));
+
+    return buildScene(objects);
+
+}
+
+
+#if TEST_LARGE_MODELS
+static aiScenePtr buildLargeScene () {
+
+    vector<aiMesh *> objects;
+    objects.push_back(buildLargeObject(LARGE_MODEL_FACES));
+
+    return buildScene(objects);
+
+}
+#endif
 
 
 static string nonull (const char *str) {
     return str ? str : "<null>";
 }
+
+
+// this is a hacky drop-in replacement for aiScenePtr in ImportResult meant as
+// a quick memory optimization after large model tests were added. it just
+// lets the imported scene be freed and was able to be added without me having
+// to really mess with any other code.
+struct SceneGhost {
+
+    bool nullScene;
+    unsigned mFlags;
+    unsigned mNumMeshes;
+
+    SceneGhost () : nullScene(true) { }
+    const SceneGhost * operator -> () const { return this; }
+    operator bool () const { return !nullScene; }
+
+    void reset (aiScene *scene) {
+        nullScene = !scene;
+        mFlags = scene ? scene->mFlags : 0;
+        mNumMeshes = scene ? scene->mNumMeshes : 0;
+        delete scene;
+    }
+
+};
 
 
 struct ImportResult {
@@ -110,7 +194,8 @@ struct ImportResult {
     int importerIndex;
     const aiImporterDesc *importer;
     unsigned importPP;
-    aiScenePtr imported; // null on failure.
+    //aiScenePtr imported; // null on failure.
+    SceneGhost imported;
     string importError;
 
     explicit ImportResult (string desc) :
@@ -188,15 +273,27 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
 }
 
 
-static void testExporter (vector<ImportResult> &appendTo, int exporterIndex) {
+struct TestMeshes {
+    aiScenePtr oneMesh;
+    aiScenePtr manyMeshes;
+#if TEST_LARGE_MODELS
+    aiScenePtr largeMesh;
+#endif
+};
 
-    aiScenePtr oneMesh = buildScene(1);
-    aiScenePtr manyMeshes = buildScene(5);
 
-    appendTo.push_back(testExportImport("meshes=1, validation=no ", oneMesh, exporterIndex, 0));
-    appendTo.push_back(testExportImport("meshes=5, validation=no ", manyMeshes, exporterIndex, 0));
-    appendTo.push_back(testExportImport("meshes=1, validation=yes", oneMesh, exporterIndex, aiProcess_ValidateDataStructure));
-    appendTo.push_back(testExportImport("meshes=5, validation=yes", manyMeshes, exporterIndex, aiProcess_ValidateDataStructure));
+static void testExporter (vector<ImportResult> &appendTo, const TestMeshes &tm, int exporterIndex) {
+
+    appendTo.push_back(testExportImport("meshes=1, validation=no ", tm.oneMesh, exporterIndex, 0));
+    appendTo.push_back(testExportImport("meshes=5, validation=no ", tm.manyMeshes, exporterIndex, 0));
+#if TEST_LARGE_MODELS
+    appendTo.push_back(testExportImport("large   , validation=no ", tm.largeMesh, exporterIndex, 0));
+#endif
+    appendTo.push_back(testExportImport("meshes=1, validation=yes", tm.oneMesh, exporterIndex, aiProcess_ValidateDataStructure));
+    appendTo.push_back(testExportImport("meshes=5, validation=yes", tm.manyMeshes, exporterIndex, aiProcess_ValidateDataStructure));
+#if TEST_LARGE_MODELS
+    appendTo.push_back(testExportImport("large   , validation=yes ", tm.largeMesh, exporterIndex, aiProcess_ValidateDataStructure));
+#endif
 
 }
 
@@ -245,7 +342,7 @@ static bool isInteresting (const ImportResult &result) {
             result.importerIndex == -1 ||
             !result.imported ||
             result.imported->mFlags ||
-            !result.imported->HasMeshes();
+            !result.imported->mNumMeshes;
 
 }
 
@@ -367,9 +464,18 @@ int main (int argc, char * argv[]) {
 
     if (!strcmp(action, "import_coverage")) {
 
+        TestMeshes testdata;
+        testdata.oneMesh = buildScene(1);
+        testdata.manyMeshes = buildScene(5);
+#if TEST_LARGE_MODELS
+        testdata.largeMesh = buildLargeScene();
+#endif
+
+        //Assimp::Exporter().Export(testdata.largeMesh.get(), "plyb", "large_scene.ply");
+
         vector<ImportResult> results;
         for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k)
-            testExporter(results, k);
+            testExporter(results, testdata, k);
 
         vector<ImporterInfo> importers;
         for (unsigned k = 0; k < aiGetImportFormatCount(); ++ k)
