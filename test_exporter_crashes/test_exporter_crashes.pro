@@ -1,5 +1,5 @@
 TEMPLATE = app
-CONFIG += c++17 console debug
+CONFIG += c++17 console
 CONFIG -= app_bundle
 CONFIG -= qt
 
