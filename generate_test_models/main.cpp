@@ -32,6 +32,7 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 #define ISSUE_3778_SET_PTYPES   1  // satisfy exporters mentioned in #3778
 #define ISSUE_3780_SKIP         1  // skip importers mentioned in #3780
 #define ISSUE_3781_SET_METADATA 1  // set scene metadata to work around #3781
+#define ISSUE_3783_PATH_KLUDGE  1  // satisfy pbrt exporter, #3783
 
 
 // i know c++ has chrono stuff but it makes my head explode.
@@ -316,7 +317,14 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
     } else {
 #endif
         timer.start();
+#if ISSUE_3783_PATH_KLUDGE
+        string filename_ = filename;
+        if (!strcmp(exporterDesc->id, "pbrt"))
+            filename_ += "/facepalm";
+        result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename_, 0) == AI_SUCCESS);
+#else
         result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename, 0) == AI_SUCCESS);
+#endif
         result.exportTime = timer.seconds();
         result.exportError = nonull(exporter.GetErrorString());
 #if ISSUE_3778_SKIP
