@@ -14,13 +14,55 @@
 #include <assimp/cimport.h>
 #include <assimp/version.h>
 
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
+
 using namespace std;
 
 typedef std::shared_ptr<aiScene> aiScenePtr;
 
-#define TEST_LARGE_MODELS     1
+#define TEST_LARGE_MODELS     0
 #define LARGE_MODEL_FACES     1000000
 #define PRESERVE_IMPORT_TEST_MODELS 0
+
+// issue workarounds
+#define ISSUE_3778_SKIP         0  // skip exporters mentioned in #3778, or...
+#define ISSUE_3778_SET_PTYPES   1  // satisfy exporters mentioned in #3778
+#define ISSUE_3780_SKIP         1  // skip importers mentioned in #3780
+#define ISSUE_3781_SET_METADATA 1  // set scene metadata to work around #3781
+
+
+// i know c++ has chrono stuff but it makes my head explode.
+// todo: use gettimeofday on linux.
+struct Timer {
+    Timer ();
+    void start ();
+    double seconds () const;
+private:
+#ifdef _WIN32
+    LARGE_INTEGER freq;
+    LARGE_INTEGER t0;
+#endif
+};
+
+#ifdef _WIN32
+Timer::Timer () {
+    QueryPerformanceFrequency(&freq);
+    start();
+}
+
+void Timer::start () {
+    QueryPerformanceCounter(&t0);
+}
+
+double Timer::seconds () const {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return (double)(now.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
+}
+#endif
 
 
 static void setFace (aiFace &face, unsigned a, unsigned b, unsigned c) {
@@ -57,6 +99,10 @@ static aiMesh * buildObject (bool normals, ai_real x, ai_real y = 0, ai_real z =
     setFace(mesh->mFaces[2], 0, 3, 1);
     setFace(mesh->mFaces[3], 3, 2, 1);
 
+#if ISSUE_3778_SET_PTYPES
+    mesh->mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
+#endif
+
     for (unsigned k = 0; k < mesh->mNumVertices; ++ k) {
         if (normals) {
             mesh->mNormals[k] = mesh->mVertices[k];
@@ -88,6 +134,10 @@ static aiMesh * buildLargeObject (unsigned faces) {
 
     mesh->mNumFaces = faces;
     mesh->mFaces = new aiFace[faces];
+
+#if ISSUE_3778_SET_PTYPES
+    mesh->mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
+#endif
 
     for (unsigned f = 0; f < faces; ++ f) {
         if (!(f % 2))
@@ -122,8 +172,11 @@ static aiScenePtr buildScene (const vector<aiMesh *> &meshes) {
         scene->mRootNode->mMeshes[k] = k;
     }
 
-    return scene;
+#if ISSUE_3781_SET_METADATA
+    scene->mMetaData = new aiMetadata();
+#endif
 
+    return scene;
 
 }
 
@@ -190,6 +243,7 @@ struct ImportResult {
     bool exportSuccess;  // ...this will tell if it failed or not.
     string exportError;
     list<string> exportedFiles;
+    double exportTime;
 
     int importerIndex;
     const aiImporterDesc *importer;
@@ -197,11 +251,12 @@ struct ImportResult {
     //aiScenePtr imported; // null on failure.
     SceneGhost imported;
     string importError;
+    double importTime;
 
     explicit ImportResult (string desc) :
         testDescription(desc),
-        exporterIndex(-1), exporter(nullptr), exportSuccess(false),
-        importerIndex(-1), importer(nullptr), importPP(0) { }
+        exporterIndex(-1), exporter(nullptr), exportSuccess(false), exportTime(0),
+        importerIndex(-1), importer(nullptr), importPP(0), importTime(0) { }
 
 };
 
@@ -226,7 +281,9 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
     const aiExportFormatDesc *exporterDesc = aiGetExportFormatDescription(exporterIndex);
     Assimp::Exporter exporter;
     Assimp::Importer importer;
+    Timer timer;
     ImportResult result(description);
+
 
 #if PRESERVE_IMPORT_TEST_MODELS
     string descriptiondir;
@@ -244,19 +301,53 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
 
     result.exporterIndex = exporterIndex;
     result.exporter = exporterDesc;
-    result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename, 0) == AI_SUCCESS);
-    result.exportError = nonull(exporter.GetErrorString());
+#if ISSUE_3778_SKIP
+    // temporarily skipping these until https://github.com/assimp/assimp/issues/3778 is resolved.
+    if (!strcmp(exporterDesc->id, "3ds") ||
+        !strcmp(exporterDesc->id, "gltf2") ||
+        !strcmp(exporterDesc->id, "glb2") ||
+        !strcmp(exporterDesc->id, "gltf") ||
+        !strcmp(exporterDesc->id, "glb") ||
+        !strcmp(exporterDesc->id, "pbrt"))
+    {
+        result.exportSuccess = false;
+        result.exportTime = 0;
+        result.exportError = "skipped: assertion fails @ SortByPTypeProcess.cpp(138): 0 != mesh->mPrimitiveTypes";
+    } else {
+#endif
+        timer.start();
+        result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename, 0) == AI_SUCCESS);
+        result.exportTime = timer.seconds();
+        result.exportError = nonull(exporter.GetErrorString());
+#if ISSUE_3778_SKIP
+    }
+#endif
     std::transform(filesystem::directory_iterator(EXPORT_TEST_PATH), filesystem::directory_iterator(),
                    std::back_inserter(result.exportedFiles),
                    [] (auto &d) { return d.path().filename().string(); });
 
     if (result.exportSuccess) {
-        importer.ReadFile(filename, importPP);
-        result.importError = nonull(importer.GetErrorString());
-        result.importerIndex = importer.GetPropertyInteger("importerIndex", -1);
-        result.importer = aiGetImportFormatDescription(result.importerIndex);
-        result.importPP = importPP;
-        result.imported.reset(importer.GetOrphanedScene());
+#if ISSUE_3780_SKIP
+        if (!strcmp(exporterDesc->id, "glb")) {
+            result.importTime = 0;
+            result.importError = "skipped: assertion fails @ glTFImporter.cpp(452): validRes";
+            result.importerIndex = -1;
+            result.importer = nullptr;
+            result.importPP = importPP;
+            result.imported.reset(nullptr);
+        } else {
+#endif
+            timer.start();
+            importer.ReadFile(filename, importPP);
+            result.importTime = timer.seconds();
+            result.importError = nonull(importer.GetErrorString());
+            result.importerIndex = importer.GetPropertyInteger("importerIndex", -1);
+            result.importer = aiGetImportFormatDescription(result.importerIndex);
+            result.importPP = importPP;
+            result.imported.reset(importer.GetOrphanedScene());
+#if ISSUE_3780_SKIP
+        }
+#endif
         printf("exporter: %10s %s importer: %s (%s)\n", exporterDesc->id,
                description.c_str(), result.importer ? result.importer->mName : "none",
                result.imported ? "ok" : result.importError.c_str());
@@ -393,8 +484,8 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
             aiGetVersionMinor(),
             aiGetVersionRevision());
 
-    fprintf(csv, ",exporter,,,,export operation,,,,importer,,,import operation,,,,\n");
-    fprintf(csv, ",index,id,description,extension,test,success?,message,files,index,description,extensions,success?,sceneflags,meshes,message,\n");
+    fprintf(csv, ",exporter,,,,export operation,,,,,importer,,,import operation,,,,,\n");
+    fprintf(csv, ",index,id,description,extension,test,msec,success?,message,files,index,description,extensions,msec,success?,sceneflags,meshes,message,\n");
 
     for (auto pr = results.begin(); pr != results.end(); ++ pr) {
         string filenames;
@@ -407,8 +498,9 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
                 quoteCSV(pr->exporter->id).c_str(),
                 quoteCSV(pr->exporter->description).c_str(),
                 quoteCSV(pr->exporter->fileExtension).c_str());
-        fprintf(csv, "%s,%s,%s,%s,",
+        fprintf(csv, "%s,%f,%s,%s,%s,",
                 quoteCSV(pr->testDescription).c_str(),
+                pr->exportTime * 1000.0,
                 pr->exportSuccess ? "ok" : "failed",
                 quoteCSV(pr->exportError).c_str(),
                 quoteCSV(filenames).c_str());
@@ -416,7 +508,8 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
                 pr->importerIndex /*numberOr(pr->importerIndex, "none").c_str() */,
                 pr->importer ? quoteCSV(pr->importer->mName).c_str() : "",
                 pr->importer ? quoteCSV(pr->importer->mFileExtensions).c_str() : "");
-        fprintf(csv, "%s,0x%08x,%d,%s,",
+        fprintf(csv, "%f,%s,0x%08x,%d,%s,",
+                pr->importTime * 1000.0,
                 pr->imported ? "ok" : "failed",
                 pr->imported ? pr->imported->mFlags : 0,
                 pr->imported ? pr->imported->mNumMeshes : 0,

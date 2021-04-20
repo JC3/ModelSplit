@@ -1,5 +1,6 @@
 debug/
 release/
 /model-*
-/importer_coverage.csv
+/importer_coverage*
 /dummy.*
+.~*\#
