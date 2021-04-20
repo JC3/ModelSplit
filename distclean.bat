@@ -3,3 +3,4 @@ del Makefile Makefile.*
 cd %~dp0/generate_test_models && call distclean.bat
 cd %~dp0/modelsplit && call distclean.bat
 cd %~dp0/test_exporter_crashes && call distclean.bat
+cd %~dp0/specific_tests && call distclean.bat

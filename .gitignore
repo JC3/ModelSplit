@@ -1,6 +1,7 @@
 local/
 *~
-
+~*.dir
+~*_dir
 
 # C++ objects and libs
 *.slo
