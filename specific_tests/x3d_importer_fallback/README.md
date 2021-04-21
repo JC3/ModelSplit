@@ -18,7 +18,7 @@ assimp 5.0.1 (master @ cd42b995)
 Extension: "3ds"
   IsExtensionSupported:       true
   GetImporterIndex:           3
-  GetImporter:                plugin=0x0000028831C618D0
+  GetImporter:                plugin=0x0000012F5897DDC0
   ->GetExtensionList:         3ds prj
   ->GetInfo->mName:           Discreet 3DS Importer
   ->GetInfo->mFileExtensions: 3ds prj
@@ -38,6 +38,7 @@ Extension: "assjson"
     ReadFile:                 success
     importerIndex:            46
     mName:                    Extensible 3D(X3D) Importer
+    scene->mFlags:            0x00000000
 [deleting dummy file]
 ---------------------------------------------------------------
 Extension: "qwerty"
@@ -49,6 +50,7 @@ Extension: "qwerty"
     ReadFile:                 success
     importerIndex:            46
     mName:                    Extensible 3D(X3D) Importer
+    scene->mFlags:            0x00000000
 [deleting dummy file]
 ---------------------------------------------------------------
 ```

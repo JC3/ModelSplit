@@ -5,6 +5,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/version.h>
 #include <assimp/postprocess.h>
+#include <assimp/scene.h>
 
 using namespace std;
 
@@ -30,7 +31,8 @@ static void tryItWithAFile (const char *extn) {
     {
         printf("  ReadFile (pFlags=0):\n");
         Assimp::Importer importer;
-        if (!importer.ReadFile(filename, 0))
+        const aiScene *scene;
+        if (!(scene = importer.ReadFile(filename, 0)))
             printf("    ReadFile:                 error: %s\n", importer.GetErrorString());
         else
             printf("    ReadFile:                 success\n");
@@ -38,13 +40,16 @@ static void tryItWithAFile (const char *extn) {
         printf("    importerIndex:            %d\n", index);
         const aiImporterDesc *desc = importer.GetImporterInfo(index);
         printf("    mName:                    %s\n", desc ? desc->mName : "(null info)");
+        if (scene)
+            printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
     }
 
 #if TRY_READ_VALIDATED
     {
         printf("  ReadFile (pFlags=aiProcess_ValidateDataStructure):\n");
         Assimp::Importer importer;
-        if (!importer.ReadFile(filename, aiProcess_ValidateDataStructure))
+        const aiScene *scene;
+        if (!(scene = importer.ReadFile(filename, aiProcess_ValidateDataStructure)))
             printf("    ReadFile:                 error: %s\n", importer.GetErrorString());
         else
             printf("    ReadFile:                 success\n");
@@ -52,6 +57,8 @@ static void tryItWithAFile (const char *extn) {
         printf("    importerIndex:            %d\n", index);
         const aiImporterDesc *desc = importer.GetImporterInfo(index);
         printf("    mName:                    %s\n", desc ? desc->mName : "(null info)");
+        if (scene)
+            printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
     }
 #endif
 
