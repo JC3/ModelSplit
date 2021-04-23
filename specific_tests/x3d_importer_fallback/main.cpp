@@ -6,12 +6,17 @@
 #include <assimp/version.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <assimp/DefaultIOSystem.h>
 
 using namespace std;
 
 // doing a ReadFile with validation doesn't add new info and makes the output
 // more verbose than needed; so i've optionified it and disabled it.
 #define TRY_READ_VALIDATED 0 // non-zero to enable
+
+// also try forcing use of the BaseImporter that assimp says should handle
+// the extension, in case of mismatch.
+#define TRY_FORCING_LOADER 1 // zero to disable
 
 
 static void tryItWithAFile (const char *extn, const char *file) {
@@ -47,6 +52,31 @@ static void tryItWithAFile (const char *extn, const char *file) {
         if (scene)
             printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
     }
+
+#if TRY_FORCING_LOADER
+    {
+        printf("  ReadFile via forced use of BaseImporter:\n");
+        Assimp::Importer importer;
+        Assimp::BaseImporter *base = importer.GetImporter(extn);
+        if (base) {
+            Assimp::DefaultIOSystem io;
+            bool readable = base->CanRead(filename, &io, false);
+            bool readableSig = base->CanRead(filename, &io, true);
+            printf("    mName:                    %s\n", base->GetInfo()->mName);
+            printf("    CanRead(checkSig=false):  %s\n", readable ? "yes" : "no");
+            printf("    CanRead(checkSig=true):   %s\n", readableSig ? "yes" : "no");
+            const aiScene *scene = base->ReadFile(&importer, filename, &io);
+            if (!scene)
+                printf("    ReadFile:                 error: %s\n", base->GetErrorText().c_str());
+            else
+                printf("    ReadFile:                 success\n");
+            if (scene)
+                printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
+        } else {
+            printf("    GetImporter:              null\n");
+        }
+    }
+#endif
 
 #if TRY_READ_VALIDATED
     {
