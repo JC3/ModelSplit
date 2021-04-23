@@ -1,0 +1,3 @@
+- *scene.stp* - A simple tetrahedron, exported with assimp's "stp" exporter.
+- *io1-tu-203.stp* - An AP203 reference file, obtained from https://www.cax-if.org/cax/cax_stepLib.php.
+- *io1-cm-214.stp* - An AP214 reference file, from the same place.

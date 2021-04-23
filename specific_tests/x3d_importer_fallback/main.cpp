@@ -14,19 +14,23 @@ using namespace std;
 #define TRY_READ_VALIDATED 0 // non-zero to enable
 
 
-static void tryItWithAFile (const char *extn) {
+static void tryItWithAFile (const char *extn, const char *file) {
 
-    string filename = "dummy.";
-    filename += extn;
+    string filename;
 
-    FILE *dummy = fopen(filename.c_str(), "w");
-    if (!dummy) {
-        perror(extn);
-        return;
+    if (file) {
+        filename = file;
+        printf("[using specified file: %s]\n", filename.c_str());
+    } else {
+        filename = string("dummy.") + extn;
+        FILE *dummy = fopen(filename.c_str(), "w");
+        if (!dummy) {
+            perror(extn);
+            return;
+        }
+        fclose(dummy);
+        printf("[created zero-length dummy file: %s]\n", filename.c_str());
     }
-    fclose(dummy);
-
-    printf("[created zero-length dummy file: %s]\n", filename.c_str());
 
     {
         printf("  ReadFile (pFlags=0):\n");
@@ -62,13 +66,15 @@ static void tryItWithAFile (const char *extn) {
     }
 #endif
 
-    printf("[deleting dummy file]\n");
-    remove(filename.c_str());
+    if (!file) {
+        printf("[deleting dummy file]\n");
+        remove(filename.c_str());
+    }
 
 }
 
 
-static void showExtensionInfo (const char *extn) {
+static void showExtensionInfo (const char *extn, const char *file) {
 
     Assimp::Importer importer;
 
@@ -91,7 +97,7 @@ static void showExtensionInfo (const char *extn) {
         printf("  ->GetInfo->mFileExtensions: %s\n", desc ? desc->mFileExtensions : "(null info)");
     }
 
-    tryItWithAFile(extn);
+    tryItWithAFile(extn, file);
 
     printf("---------------------------------------------------------------\n");
 
@@ -101,16 +107,23 @@ static void showExtensionInfo (const char *extn) {
 int main (int argc, char **argv) {
 
     if (argc == 1) {
-        fprintf(stderr, "Usage: %s <extension> [ <extensions> ... ]\n\n", argv[0]);
-        fprintf(stderr, "   extension   One or more file extensions to test (no leading period).\n\n");
+        fprintf(stderr, "Usage: %s <extension[:file]> [ <extensions[:file]> ... ]\n\n", argv[0]);
+        fprintf(stderr, "   extension        One or more file extensions to test (no leading period).\n");
+        fprintf(stderr, "   extension:file   Use actual file <file> instead of a dummy.\n\n");
         return 1;
     }
 
     printf("assimp %d.%d.%d (%s @ %08x)\n", aiGetVersionMajor(), aiGetVersionMinor(),
            aiGetVersionPatch(), aiGetBranchName(), aiGetVersionRevision());
 
-    for (int a = 1; a < argc; ++ a)
-        showExtensionInfo(argv[a]);
+    for (int a = 1; a < argc; ++ a) {
+        char *work = strdup(argv[a]);
+        char *extn = work;
+        char *file = strchr(work, ':');
+        if (file) *(file ++) = 0;
+        showExtensionInfo(extn, file);
+        free(work);
+    }
 
     return 0;
 
