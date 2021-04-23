@@ -1,13 +1,15 @@
 # x3d_importer_fallback
 
+Note: This test has been given additional purpose as a generic import tester, and the ability to provide specific test files on the command line has been added.
+
 ## Usage
 
-    x3d_importer_fallback extension [ extensions ... ]
+    x3d_importer_fallback extension[:file] [ extensions[:file] ... ]
 
 For each of the supplied extensions, this does two things:
 
 1. Query and print support info for the extension.
-2. Create a zero-length dummy file with the extension and attempt to import it, printing info about the results.
+2. Create a zero-length dummy file with the extension (*or* load the given file, if specified) and attempt to import it, printing info about the results.
 
 ## Output
 
