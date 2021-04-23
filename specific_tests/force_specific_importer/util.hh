@@ -5,6 +5,8 @@
 #include <list>
 #include <string>
 
+struct aiScene;
+
 // somehow this is more code than the actual test program, so i put it in
 // its own source file so i didn't have to look at it.
 
@@ -19,5 +21,6 @@ private:
 };
 
 std::string sanitize (const char *name);
+void debugExport (const char *name, const aiScene *scene);
 
 #endif // UTIL_H

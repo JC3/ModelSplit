@@ -3,6 +3,8 @@
 #include <filesystem>
 #include <assimp/cimport.h>
 #include <assimp/importerdesc.h>
+#include <assimp/Exporter.hpp>
+#include <assimp/scene.h>
 
 using namespace std;
 
@@ -95,3 +97,19 @@ string sanitize (const char *name) {
 
 }
 
+
+void debugExport (const char *name, const aiScene *scene) {
+
+    string filename = "debug_";
+    for (const char *ch = name; *ch; ++ ch)
+        filename += isalnum(*ch) ? *ch : '_';
+    filename += ".obj";
+
+    Assimp::Exporter exporter;
+    if (exporter.Export(scene, "objnomtl", filename) != AI_SUCCESS) {
+        fprintf(stderr, "export failed: %s\n", exporter.GetErrorString());
+    } else {
+        printf("[wrote: %s]\n", filename.c_str());
+    }
+
+}

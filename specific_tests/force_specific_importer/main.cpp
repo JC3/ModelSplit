@@ -8,6 +8,8 @@
 
 using namespace std;
 
+#define DEBUG_EXPORT_MODELS 0
+
 
 static void bye (const char *msg) {
     fprintf(stderr, "%s\n", msg);
@@ -53,6 +55,11 @@ int main (int argc, char **argv) {
         bool readable = loader->CanRead(filename, &io, false);
         bool readableSig = loader->CanRead(filename, &io, true);
         const aiScene *scene = loader->ReadFile(&importer, filename, &io);
+
+#if DEBUG_EXPORT_MODELS
+        if (scene)
+            debugExport(filename.c_str(), scene);
+#endif
 
         if (opts.compact) {
             printf("[%s|%c%c] %s: %s\n", scene ? "OK" : "  ", readable ? 'R' : ' ',
