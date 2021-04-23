@@ -618,6 +618,29 @@ int main (int argc, char * argv[]) {
             fclose(fopen(filename.c_str(), "a"));
         }
 
+    } else if (!strcmp(action, "list_importers")) {
+
+        printf("saving list to importer_list.csv...\n");
+        FILE *out = fopen("importer_list.csv", "wt");
+        if (!out) { perror("importer_list.csv"); return 1; }
+
+        fprintf(out, "index,name,author,maintainer,comments,flags,minversion,maxversion,extensions\n");
+        for (unsigned k = 0; k < aiGetImportFormatCount(); ++ k) {
+            auto d = aiGetImportFormatDescription(k);
+            fprintf(out, "%d,%s,%s,%s,%s,0x%08x,\"%d.%d\",\"%d.%d\",%s\n",
+                    k,
+                    quoteCSV(d->mName).c_str(),
+                    quoteCSV(d->mAuthor).c_str(),
+                    quoteCSV(d->mMaintainer).c_str(),
+                    quoteCSV(d->mComments).c_str(),
+                    d->mFlags,
+                    d->mMinMajor, d->mMinMinor,
+                    d->mMaxMajor, d->mMaxMinor,
+                    quoteCSV(d->mFileExtensions).c_str());
+        }
+
+        fclose(out);
+
     } else if (!*action) {
 
         for (unsigned k = 0; k < aiGetExportFormatCount(); ++ k) {
