@@ -250,6 +250,7 @@ struct ImportResult {
     double exportTime;
 
     int importerIndex;
+    int importerIndexExpected;
     const aiImporterDesc *importer;
     unsigned importPP;
     //aiScenePtr imported; // null on failure.
@@ -260,7 +261,7 @@ struct ImportResult {
     explicit ImportResult (string desc) :
         testDescription(desc),
         exporterIndex(-1), exporter(nullptr), exportSuccess(false), exportTime(0),
-        importerIndex(-1), importer(nullptr), importPP(0), importTime(0) { }
+        importerIndex(-1), importerIndexExpected(-1), importer(nullptr), importPP(0), importTime(0) { }
 
 };
 
@@ -342,6 +343,7 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
             result.importTime = 0;
             result.importError = "skipped: assertion fails @ glTFImporter.cpp(452): validRes";
             result.importerIndex = -1;
+            result.importerIndexExpected = -1;
             result.importer = nullptr;
             result.importPP = importPP;
             result.imported.reset(nullptr);
@@ -352,30 +354,32 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
             result.importTime = timer.seconds();
             result.importError = nonull(importer.GetErrorString());
             result.importerIndex = importer.GetPropertyInteger("importerIndex", -1);
+            result.importerIndexExpected = (int)importer.GetImporterIndex(exporterDesc->fileExtension);
             result.importer = aiGetImportFormatDescription(result.importerIndex);
             result.importPP = importPP;
             result.imported.reset(importer.GetOrphanedScene());
 #if ISSUE_3791_FORCE_IFC
             // it's easiest just to retry the import, even if it's not efficient.
-            if (!strcmp(exporterDesc->id, "stp") && result.importerIndex != importer.GetImporterIndex(exporterDesc->fileExtension)) {
+            if (!strcmp(exporterDesc->id, "stp") && result.importerIndex != result.importerIndexExpected) {
                 if (importPP) {
                     // not worth implementing the validation here.
                     result.importTime = 0;
                     result.importError = "skipped: can't postprocess with #3791 workaround enabled";
                     result.importerIndex = -1;
+                    result.importerIndexExpected = -1;
                     result.importer = nullptr;
                     result.importPP = importPP;
                     result.imported.reset(nullptr);
                 } else {
                     Assimp::Importer importer2;
-                    int loaderIndex = (int)importer2.GetImporterIndex(exporterDesc->fileExtension);
-                    Assimp::BaseImporter *loader = importer2.GetImporter(loaderIndex);
+                    Assimp::BaseImporter *loader = importer2.GetImporter(result.importerIndexExpected);
                     Assimp::DefaultIOSystem io;
                     timer.start();
                     result.imported.reset(loader->ReadFile(&importer2, filename, &io));
                     result.importTime = timer.seconds();
                     result.importError = loader->GetErrorText();
-                    result.importerIndex = loaderIndex;
+                    result.importerIndex = result.importerIndexExpected;
+                    // result.importerIndexExpected retains its value.
                     result.importer = aiGetImportFormatDescription(result.importerIndex);
                     result.importPP = importPP;
                 }
@@ -467,6 +471,7 @@ static bool isInteresting (const ImportResult &result) {
             result.exporterIndex == -1 ||
             !result.exportSuccess ||
             result.importerIndex == -1 ||
+            result.importerIndex != result.importerIndexExpected ||
             !result.imported ||
             result.imported->mFlags ||
             !result.imported->mNumMeshes;
@@ -520,8 +525,8 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
             aiGetVersionMinor(),
             aiGetVersionRevision());
 
-    fprintf(csv, ",exporter,,,,export operation,,,,,importer,,,import operation,,,,,\n");
-    fprintf(csv, ",index,id,description,extension,test,msec,success?,message,files,index,description,extensions,msec,success?,sceneflags,meshes,message,\n");
+    fprintf(csv, ",exporter,,,,export operation,,,,,importer,,,,import operation,,,,,\n");
+    fprintf(csv, ",index,id,description,extension,test,msec,success?,message,files,index,indexEx,description,extensions,msec,success?,sceneflags,meshes,message,\n");
 
     for (auto pr = results.begin(); pr != results.end(); ++ pr) {
         string filenames;
@@ -540,8 +545,9 @@ static bool writeReport (const char *filename, const vector<ImportResult> &resul
                 pr->exportSuccess ? "ok" : "failed",
                 quoteCSV(pr->exportError).c_str(),
                 quoteCSV(filenames).c_str());
-        fprintf(csv, "%d,%s,%s,",
+        fprintf(csv, "%d,%d,%s,%s,",
                 pr->importerIndex /*numberOr(pr->importerIndex, "none").c_str() */,
+                pr->importerIndexExpected,
                 pr->importer ? quoteCSV(pr->importer->mName).c_str() : "",
                 pr->importer ? quoteCSV(pr->importer->mFileExtensions).c_str() : "");
         fprintf(csv, "%f,%s,0x%08x,%d,%s,",
