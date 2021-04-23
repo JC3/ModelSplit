@@ -10,6 +10,8 @@
 #include <assimp/scene.h>
 #include <assimp/Exporter.hpp>
 #include <assimp/Importer.hpp>
+#include <assimp/BaseImporter.h>
+#include <assimp/DefaultIOSystem.h>
 #include <assimp/postprocess.h>
 #include <assimp/cimport.h>
 #include <assimp/version.h>
@@ -33,6 +35,7 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 #define ISSUE_3780_SKIP         1  // skip importers mentioned in #3780
 #define ISSUE_3781_SET_METADATA 1  // set scene metadata to work around #3781
 #define ISSUE_3783_PATH_KLUDGE  1  // satisfy pbrt exporter, #3783
+#define ISSUE_3791_FORCE_IFC    1  // force ifc importer for step files, #3791
 
 
 // i know c++ has chrono stuff but it makes my head explode.
@@ -285,7 +288,6 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
     Timer timer;
     ImportResult result(description);
 
-
 #if PRESERVE_IMPORT_TEST_MODELS
     string descriptiondir;
     for (auto ch = description.cbegin(); ch != description.cend(); ++ ch)
@@ -353,6 +355,32 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
             result.importer = aiGetImportFormatDescription(result.importerIndex);
             result.importPP = importPP;
             result.imported.reset(importer.GetOrphanedScene());
+#if ISSUE_3791_FORCE_IFC
+            // it's easiest just to retry the import, even if it's not efficient.
+            if (!strcmp(exporterDesc->id, "stp") && result.importerIndex != importer.GetImporterIndex(exporterDesc->fileExtension)) {
+                if (importPP) {
+                    // not worth implementing the validation here.
+                    result.importTime = 0;
+                    result.importError = "skipped: can't postprocess with #3791 workaround enabled";
+                    result.importerIndex = -1;
+                    result.importer = nullptr;
+                    result.importPP = importPP;
+                    result.imported.reset(nullptr);
+                } else {
+                    Assimp::Importer importer2;
+                    int loaderIndex = (int)importer2.GetImporterIndex(exporterDesc->fileExtension);
+                    Assimp::BaseImporter *loader = importer2.GetImporter(loaderIndex);
+                    Assimp::DefaultIOSystem io;
+                    timer.start();
+                    result.imported.reset(loader->ReadFile(&importer2, filename, &io));
+                    result.importTime = timer.seconds();
+                    result.importError = loader->GetErrorText();
+                    result.importerIndex = loaderIndex;
+                    result.importer = aiGetImportFormatDescription(result.importerIndex);
+                    result.importPP = importPP;
+                }
+            }
+#endif
 #if ISSUE_3780_SKIP
         }
 #endif
@@ -660,6 +688,7 @@ int main (int argc, char * argv[]) {
                         "  (default)         generate test models\n"
                         "  import_coverage   find importer / exporter associations\n"
                         "  dummy_files       generate dummy files for all extensions\n"
+                        "  list_importers    generate a detailed list of importers\n"
                         "\n");
         return 1;
 
