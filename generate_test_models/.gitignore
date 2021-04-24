@@ -2,5 +2,6 @@ debug/
 release/
 /model-*
 /importer_coverage*
+/importer_list*
 /dummy.*
 .~*\#
