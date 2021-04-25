@@ -36,6 +36,7 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 #define ISSUE_3781_SET_METADATA 1  // set scene metadata to work around #3781
 #define ISSUE_3783_PATH_KLUDGE  1  // satisfy pbrt exporter, #3783
 #define ISSUE_3791_FORCE_IFC    1  // force ifc importer for step files, #3791
+#define ISSUE_3807_GLTF1_PATHS  1  // cd to gltf path to work around #3807
 
 
 // i know c++ has chrono stuff but it makes my head explode.
@@ -320,16 +321,26 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
     } else {
 #endif
         timer.start();
-#if ISSUE_3783_PATH_KLUDGE
         string filename_ = filename;
+#if ISSUE_3783_PATH_KLUDGE
         if (!strcmp(exporterDesc->id, "pbrt"))
             filename_ += "/facepalm";
-        result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename_, 0) == AI_SUCCESS);
-#else
-        result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename, 0) == AI_SUCCESS);
 #endif
+#if ISSUE_3807_GLTF1_PATHS
+        auto cwd = filesystem::current_path();
+        if (!strcmp(exporterDesc->id, "gltf")) {
+            filesystem::path thepath = filesystem::absolute(filename_);
+            filename_ = thepath.filename().string();
+            filesystem::current_path(thepath.remove_filename());
+        }
+#endif
+        result.exportSuccess = (exporter.Export(scene.get(), exporterDesc->id, filename_, 0) == AI_SUCCESS);
         result.exportTime = timer.seconds();
         result.exportError = nonull(exporter.GetErrorString());
+#if ISSUE_3807_GLTF1_PATHS
+        if (!strcmp(exporterDesc->id, "gltf"))
+            filesystem::current_path(cwd);
+#endif
 #if ISSUE_3778_SKIP
     }
 #endif
