@@ -4,12 +4,15 @@ Note: This test has been given additional purpose as a generic import tester, an
 
 ## Usage
 
-    x3d_importer_fallback extension[:file] [ extensions[:file] ... ]
+    x3d_importer_fallback [ -x[:format] ] extension[:file] [ extensions[:file] ... ]
 
 For each of the supplied extensions, this does two things:
 
 1. Query and print support info for the extension.
 2. Create a zero-length dummy file with the extension (*or* load the given file, if specified) and attempt to import it, printing info about the results.
+
+Optionally, specify -x to export all imported files in the given format (default "assxml") so you can verify import results. The -x only applies to the
+extensions that follow it so put it at the beginning.
 
 ## Output
 

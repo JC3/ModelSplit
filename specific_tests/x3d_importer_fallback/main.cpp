@@ -3,6 +3,7 @@
 #include <string>
 #include <assimp/BaseImporter.h>
 #include <assimp/Importer.hpp>
+#include <assimp/Exporter.hpp>
 #include <assimp/version.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
@@ -19,7 +20,35 @@ using namespace std;
 #define TRY_FORCING_LOADER 1 // zero to disable
 
 
-static void tryItWithAFile (const char *extn, const char *file) {
+static void dumpModel (const aiScene *scene, const char *name, const char *format) {
+
+    if (!scene || !format)
+        return;
+
+    Assimp::Exporter exporter;
+
+    const aiExportFormatDesc *desc = nullptr;
+    for (unsigned k = 0; k < exporter.GetExportFormatCount() && !desc; ++ k) {
+        desc = exporter.GetExportFormatDescription(k);
+        desc = (strcmp(format, desc->id) ? nullptr : desc);
+    }
+
+    string filename = "debug_";
+    for (const char *ch = name; *ch; ++ ch)
+        filename += isalnum(*ch) ? *ch : '_';
+    if (desc)
+        filename += string(".") + desc->fileExtension;
+
+    if (exporter.Export(scene, format, filename) != AI_SUCCESS) {
+        fprintf(stderr, "[export failed: %s]\n", exporter.GetErrorString());
+    } else {
+        printf("[wrote: %s]\n", filename.c_str());
+    }
+
+}
+
+
+static void tryItWithAFile (const char *extn, const char *file, const char *dumpformat) {
 
     string filename;
 
@@ -53,6 +82,24 @@ static void tryItWithAFile (const char *extn, const char *file) {
             printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
     }
 
+#if TRY_READ_VALIDATED
+    {
+        printf("  ReadFile (pFlags=aiProcess_ValidateDataStructure):\n");
+        Assimp::Importer importer;
+        const aiScene *scene;
+        if (!(scene = importer.ReadFile(filename, aiProcess_ValidateDataStructure)))
+            printf("    ReadFile:                 error: %s\n", importer.GetErrorString());
+        else
+            printf("    ReadFile:                 success\n");
+        int index = importer.GetPropertyInteger("importerIndex", -1);
+        printf("    importerIndex:            %d\n", index);
+        const aiImporterDesc *desc = importer.GetImporterInfo(index);
+        printf("    mName:                    %s\n", desc ? desc->mName : "(null info)");
+        if (scene)
+            printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
+    }
+#endif
+
 #if TRY_FORCING_LOADER
     {
         printf("  ReadFile via forced use of BaseImporter:\n");
@@ -72,27 +119,10 @@ static void tryItWithAFile (const char *extn, const char *file) {
                 printf("    ReadFile:                 success\n");
             if (scene)
                 printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
+            dumpModel(scene, filename.c_str(), dumpformat);
         } else {
             printf("    GetImporter:              null\n");
         }
-    }
-#endif
-
-#if TRY_READ_VALIDATED
-    {
-        printf("  ReadFile (pFlags=aiProcess_ValidateDataStructure):\n");
-        Assimp::Importer importer;
-        const aiScene *scene;
-        if (!(scene = importer.ReadFile(filename, aiProcess_ValidateDataStructure)))
-            printf("    ReadFile:                 error: %s\n", importer.GetErrorString());
-        else
-            printf("    ReadFile:                 success\n");
-        int index = importer.GetPropertyInteger("importerIndex", -1);
-        printf("    importerIndex:            %d\n", index);
-        const aiImporterDesc *desc = importer.GetImporterInfo(index);
-        printf("    mName:                    %s\n", desc ? desc->mName : "(null info)");
-        if (scene)
-            printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
     }
 #endif
 
@@ -104,7 +134,7 @@ static void tryItWithAFile (const char *extn, const char *file) {
 }
 
 
-static void showExtensionInfo (const char *extn, const char *file) {
+static void showExtensionInfo (const char *extn, const char *file, const char *dumpformat) {
 
     Assimp::Importer importer;
 
@@ -127,7 +157,7 @@ static void showExtensionInfo (const char *extn, const char *file) {
         printf("  ->GetInfo->mFileExtensions: %s\n", desc ? desc->mFileExtensions : "(null info)");
     }
 
-    tryItWithAFile(extn, file);
+    tryItWithAFile(extn, file, dumpformat);
 
     printf("---------------------------------------------------------------\n");
 
@@ -137,21 +167,26 @@ static void showExtensionInfo (const char *extn, const char *file) {
 int main (int argc, char **argv) {
 
     if (argc == 1) {
-        fprintf(stderr, "Usage: %s <extension[:file]> [ <extensions[:file]> ... ]\n\n", argv[0]);
+        fprintf(stderr, "Usage: %s [ -x[:format] ] <extension[:file]> [ <extensions[:file]> ... ]\n\n", argv[0]);
         fprintf(stderr, "   extension        One or more file extensions to test (no leading period).\n");
-        fprintf(stderr, "   extension:file   Use actual file <file> instead of a dummy.\n\n");
+        fprintf(stderr, "   extension:file   Use actual file <file> instead of a dummy.\n");
+        fprintf(stderr, "   -x[:format]      Export forced-import scenes for debugging (default format assxml).\n\n");
         return 1;
     }
 
     printf("assimp %d.%d.%d (%s @ %08x)\n", aiGetVersionMajor(), aiGetVersionMinor(),
            aiGetVersionPatch(), aiGetBranchName(), aiGetVersionRevision());
 
+    string dumpformat;
     for (int a = 1; a < argc; ++ a) {
         char *work = strdup(argv[a]);
         char *extn = work;
         char *file = strchr(work, ':');
         if (file) *(file ++) = 0;
-        showExtensionInfo(extn, file);
+        if (!strcmp(extn, "-x")) // haaaaaaaaaaaaaaaaack
+            dumpformat = (file ? file : "assxml");
+        else
+            showExtensionInfo(extn, file, dumpformat == "" ? nullptr : dumpformat.c_str());
         free(work);
     }
 
