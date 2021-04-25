@@ -52,8 +52,24 @@ int main (int argc, char **argv) {
             showinfo = false;
         }
 
-        bool readable = loader->CanRead(filename, &io, false);
-        bool readableSig = loader->CanRead(filename, &io, true);
+        bool readable = false;
+        string readableStr;
+        try {
+            readable = loader->CanRead(filename, &io, false);
+            readableStr = (readable ? "yes" : "no");
+        } catch (const std::exception &x) {
+            readableStr = x.what();
+        }
+
+        bool readableSig = false;
+        string readableSigStr;
+        try {
+            readableSig = loader->CanRead(filename, &io, true);
+            readableSigStr = (readableSig ? "yes" : "no");
+        } catch (const std::exception &x) {
+            readableSigStr = x.what();
+        }
+
         const aiScene *scene = loader->ReadFile(&importer, filename, &io);
 
 #if DEBUG_EXPORT_MODELS
@@ -67,8 +83,8 @@ int main (int argc, char **argv) {
                    scene ? "loaded" : loader->GetErrorText().c_str());
         } else {
             printf("File: %s\n", filename.c_str());
-            printf("  CanRead(checkSig=false): %s\n", readable ? "yes" : "no");
-            printf("  CanRead(checkSig=true):  %s\n", readableSig ? "yes" : "no");
+            printf("  CanRead(checkSig=false): %s\n", readableStr.c_str());
+            printf("  CanRead(checkSig=true):  %s\n", readableSigStr.c_str());
             printf("  ReadFile:                %s\n", scene ? "success" : loader->GetErrorText().c_str());
             printf("-----------------------------------------------------------------\n");
         }
