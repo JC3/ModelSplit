@@ -8,6 +8,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/DefaultIOSystem.h>
+#include <assimp/DefaultLogger.hpp>
 
 using namespace std;
 
@@ -19,6 +20,8 @@ using namespace std;
 // the extension, in case of mismatch.
 #define TRY_FORCING_LOADER 1 // zero to disable
 
+// verbose logging to debugger + stderr.
+#define ENABLE_ASSIMP_LOGS 0 // non-zero to enable
 
 static void dumpModel (const aiScene *scene, const char *name, const char *format) {
 
@@ -173,6 +176,10 @@ int main (int argc, char **argv) {
         fprintf(stderr, "   -x[:format]      Export forced-import scenes for debugging (default format assxml).\n\n");
         return 1;
     }
+
+#if ENABLE_ASSIMP_LOGS
+    Assimp::DefaultLogger::create("", Assimp::DefaultLogger::VERBOSE, aiDefaultLogStream_STDERR|aiDefaultLogStream_DEBUGGER);
+#endif
 
     printf("assimp %d.%d.%d (%s @ %08x)\n", aiGetVersionMajor(), aiGetVersionMinor(),
            aiGetVersionPatch(), aiGetBranchName(), aiGetVersionRevision());
