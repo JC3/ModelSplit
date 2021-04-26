@@ -83,6 +83,9 @@ static void tryItWithAFile (const char *extn, const char *file, const char *dump
         printf("    mName:                    %s\n", desc ? desc->mName : "(null info)");
         if (scene)
             printf("    scene->mFlags:            0x%08x\n", scene->mFlags);
+#if !TRY_FORCING_LOADER
+        dumpModel(scene, filename.c_str(), dumpformat);
+#endif
     }
 
 #if TRY_READ_VALIDATED
@@ -173,7 +176,11 @@ int main (int argc, char **argv) {
         fprintf(stderr, "Usage: %s [ -x[:format] ] <extension[:file]> [ <extensions[:file]> ... ]\n\n", argv[0]);
         fprintf(stderr, "   extension        One or more file extensions to test (no leading period).\n");
         fprintf(stderr, "   extension:file   Use actual file <file> instead of a dummy.\n");
+#if TRY_FORCING_LOADER
         fprintf(stderr, "   -x[:format]      Export forced-import scenes for debugging (default format assxml).\n\n");
+#else
+        fprintf(stderr, "   -x[:format]      Export imported scenes for debugging (default format assxml).\n\n");
+#endif
         return 1;
     }
 
