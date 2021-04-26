@@ -38,6 +38,7 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 #define ISSUE_3791_FORCE_IFC    1  // force ifc importer for step files, #3791
 #define ISSUE_3807_GLTF1_PATHS  1  // cd to gltf path to work around #3807
 #define ISSUE_3814_MESH_NAME    1  // give meshes a name to work around #3814
+#define ISSUE_3816_NODE_DEPTH   1  // move scene nodes down to work around #3816
 
 
 // i know c++ has chrono stuff but it makes my head explode.
@@ -313,8 +314,7 @@ struct ImportResult {
 
     int exporterIndex;
     const aiExportFormatDesc *exporter;
-    aiScenePtr exported; // will be non-null even on failure so...
-    bool exportSuccess;  // ...this will tell if it failed or not.
+    bool exportSuccess;
     string exportError;
     list<string> exportedFiles;
     double exportTime;
@@ -372,6 +372,17 @@ static ImportResult testExportImport (string description, aiScenePtr scene, int 
     filesystem::create_directories(EXPORT_TEST_PATH);
 
     string filename = string(EXPORT_TEST_PATH) + "/scene." + exporterDesc->fileExtension;
+
+#if ISSUE_3816_NODE_DEPTH
+    if (!strcmp(exporterDesc->id, "3mf")) {
+        aiScene *scene_ = nullptr;
+        aiCopyScene(scene.get(), &scene_);
+        aiNode *oldroot = scene_->mRootNode;
+        scene_->mRootNode = new aiNode();
+        scene_->mRootNode->addChildren(1, &oldroot);
+        scene.reset(scene_);
+    }
+#endif
 
     result.exporterIndex = exporterIndex;
     result.exporter = exporterDesc;
