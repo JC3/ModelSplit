@@ -37,6 +37,7 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 #define ISSUE_3783_PATH_KLUDGE  1  // satisfy pbrt exporter, #3783
 #define ISSUE_3791_FORCE_IFC    1  // force ifc importer for step files, #3791
 #define ISSUE_3807_GLTF1_PATHS  1  // cd to gltf path to work around #3807
+#define ISSUE_3814_MESH_NAME    1  // give meshes a name to work around #3814
 
 
 // i know c++ has chrono stuff but it makes my head explode.
@@ -94,6 +95,10 @@ static const constexpr MeshExtras WithUVW2 = 64;
 
 
 static aiMesh * withExtras (aiMesh *mesh, MeshExtras extras) {
+
+#if ISSUE_3814_MESH_NAME
+    extras |= WithName;
+#endif
 
     bool genNormals = (extras & WithNormals);
     bool genName = (extras & WithName);
