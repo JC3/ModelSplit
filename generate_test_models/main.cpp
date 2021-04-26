@@ -82,8 +82,75 @@ static void setFace (aiFace &face, unsigned a, unsigned b, unsigned c) {
 }
 
 
+typedef unsigned MeshExtras;
+static const constexpr MeshExtras NoExtras = 0;
+static const constexpr MeshExtras WithNormals = 1;
+static const constexpr MeshExtras WithColors0 = 2;
+static const constexpr MeshExtras WithColors1 = 4;
+static const constexpr MeshExtras WithName = 8;
+static const constexpr MeshExtras WithUV0 = 16;
+static const constexpr MeshExtras WithUV1 = 32;
+static const constexpr MeshExtras WithUVW2 = 64;
+
+
+static aiMesh * withExtras (aiMesh *mesh, MeshExtras extras) {
+
+    bool genNormals = (extras & WithNormals);
+    bool genName = (extras & WithName);
+    bool genColors[AI_MAX_NUMBER_OF_COLOR_SETS] = {0};
+    genColors[0] = (extras & WithColors0);
+    genColors[1] = (extras & WithColors1);
+    int genUV[AI_MAX_NUMBER_OF_TEXTURECOORDS] = {0};
+    genUV[0] = (extras & WithUV0) ? 2 : 0;
+    genUV[1] = (extras & WithUV1) ? 2 : 0;
+    genUV[2] = (extras & WithUVW2) ? 3 : 0;
+
+    if (genNormals && !mesh->HasNormals()) {
+        mesh->mNormals = new aiVector3D[mesh->mNumVertices];
+        for (unsigned k = 0; k < mesh->mNumVertices; ++ k)
+            mesh->mNormals[k].Set(0, 0, 1);
+    }
+
+    for (unsigned k = 0; k < AI_MAX_NUMBER_OF_COLOR_SETS; ++ k) {
+        if (genColors[k] && !mesh->HasVertexColors(k)) {
+            aiColor3D base((k&4)!=0, (k&2)!=0, (k&1)!=0);
+            mesh->mColors[k] = new aiColor4D[mesh->mNumVertices];
+            for (unsigned j = 0; j < mesh->mNumVertices; ++ j) {
+                float p = (float)j / (float)(mesh->mNumVertices - 1);
+                mesh->mColors[k][j].r = p + (1.0f - p) * base.r;
+                mesh->mColors[k][j].g = p + (1.0f - p) * base.g;
+                mesh->mColors[k][j].b = p + (1.0f - p) * base.b;
+                mesh->mColors[k][j].a = 1;
+            }
+        }
+    }
+
+    for (unsigned k = 0; k < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++ k) {
+        if (genUV[k] && !mesh->HasTextureCoords(k)) {
+            mesh->mNumUVComponents[k] = genUV[k];
+            mesh->mTextureCoords[k] = new aiVector3D[mesh->mNumVertices];
+            for (unsigned j = 0; j < mesh->mNumVertices; ++ j) {
+                float p = (float)j / (float)(mesh->mNumVertices - 1);
+                mesh->mTextureCoords[k][j].x = p / 3.0f;
+                mesh->mTextureCoords[k][j].y = (p + 1.0f) / 3.0f;
+                mesh->mTextureCoords[k][j].z = (genUV[k] > 2) ? (p + 2.0f) / 3.0f : 0;
+            }
+        }
+    }
+
+    if (genName && !mesh->mName.length) {
+        char name[100];
+        snprintf(name, sizeof(name), "mesh_%p", (void *)mesh);
+        mesh->mName.Set(name);
+    }
+
+    return mesh;
+
+}
+
+
 /** Makes a tetrahedron in bounding box (-1,-1,-1) -> ( 1, 1, 1), translated. */
-static aiMesh * buildObject (bool normals, ai_real x, ai_real y = 0, ai_real z = 0) {
+static aiMesh * buildObject (MeshExtras extras, ai_real x, ai_real y = 0, ai_real z = 0) {
 
     aiMesh *mesh = new aiMesh();
 
@@ -93,9 +160,6 @@ static aiMesh * buildObject (bool normals, ai_real x, ai_real y = 0, ai_real z =
     mesh->mVertices[1].Set(-1, 1, -1);
     mesh->mVertices[2].Set(-1, -1, 1);
     mesh->mVertices[3].Set(1, -1, -1);
-
-    if (normals)
-        mesh->mNormals = new aiVector3D[4];
 
     mesh->mNumFaces = 4;
     mesh->mFaces = new aiFace[4];
@@ -108,22 +172,17 @@ static aiMesh * buildObject (bool normals, ai_real x, ai_real y = 0, ai_real z =
     mesh->mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
 #endif
 
-    for (unsigned k = 0; k < mesh->mNumVertices; ++ k) {
-        if (normals) {
-            mesh->mNormals[k] = mesh->mVertices[k];
-            mesh->mNormals[k].Normalize();
-        }
+    for (unsigned k = 0; k < mesh->mNumVertices; ++ k)
         mesh->mVertices[k] += aiVector3D(x, y, z);
-    }
 
-    return mesh;
+    return withExtras(mesh, extras);
 
 }
 
 
 #if TEST_LARGE_MODELS
 // makes a really long triangle strip
-static aiMesh * buildLargeObject (unsigned faces) {
+static aiMesh * buildLargeObject (MeshExtras extras, unsigned faces) {
 
     printf("buildLargeObject: generating %d faces...\n", faces);
     aiMesh *mesh = new aiMesh();
@@ -149,6 +208,11 @@ static aiMesh * buildLargeObject (unsigned faces) {
             setFace(mesh->mFaces[f], f / 2, f / 2 + 1, f / 2 + bottomv);
         else
             setFace(mesh->mFaces[f], f / 2 + bottomv, (f + 1) / 2, f / 2 + 1 + bottomv);
+    }
+
+    if (extras) {
+        printf("buildLargeObject: generating extra stuff\n");
+        mesh = withExtras(mesh, extras);
     }
 
     printf("buildLargeObject: done\n");
@@ -186,11 +250,11 @@ static aiScenePtr buildScene (const vector<aiMesh *> &meshes) {
 }
 
 
-static aiScenePtr buildScene (int nobjects = 3, bool normals = false) {
+static aiScenePtr buildScene (int nobjects = 3, MeshExtras extras = NoExtras) {
 
     vector<aiMesh *> objects;
     for (int k = 0; k < nobjects; ++ k)
-        objects.push_back(buildObject(normals, (ai_real)2.5 * k));
+        objects.push_back(buildObject(extras, (ai_real)2.5 * k));
 
     return buildScene(objects);
 
@@ -198,10 +262,10 @@ static aiScenePtr buildScene (int nobjects = 3, bool normals = false) {
 
 
 #if TEST_LARGE_MODELS
-static aiScenePtr buildLargeScene () {
+static aiScenePtr buildLargeScene (MeshExtras extras = NoExtras) {
 
     vector<aiMesh *> objects;
-    objects.push_back(buildLargeObject(LARGE_MODEL_FACES));
+    objects.push_back(buildLargeObject(extras, LARGE_MODEL_FACES));
 
     return buildScene(objects);
 
@@ -610,11 +674,12 @@ int main (int argc, char * argv[]) {
 
     if (!strcmp(action, "import_coverage")) {
 
+        MeshExtras extras = NoExtras;
         TestMeshes testdata;
-        testdata.oneMesh = buildScene(1);
-        testdata.manyMeshes = buildScene(5);
+        testdata.oneMesh = buildScene(1, extras);
+        testdata.manyMeshes = buildScene(5, extras);
 #if TEST_LARGE_MODELS
-        testdata.largeMesh = buildLargeScene();
+        testdata.largeMesh = buildLargeScene(extras);
 #endif
 
         //Assimp::Exporter().Export(testdata.largeMesh.get(), "plyb", "large_scene.ply");
@@ -694,7 +759,7 @@ int main (int argc, char * argv[]) {
             snprintf(filename, sizeof(filename), "model-%02d-%s.%s", k, desc->id, desc->fileExtension);
             printf("[%-10s] %s...\n", desc->id, filename);
             Assimp::Exporter exporter;
-            if (exporter.Export(buildScene(3, true).get(), desc->id, filename) != AI_SUCCESS)
+            if (exporter.Export(buildScene(3, WithNormals).get(), desc->id, filename) != AI_SUCCESS)
                 fprintf(stderr, "  error: %s\n", exporter.GetErrorString());
         }
 
