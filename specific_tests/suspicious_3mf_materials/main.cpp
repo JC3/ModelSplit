@@ -1,11 +1,15 @@
+#include "printcolorstuff.h"
 #include <cstdio>
 #include <string>
 #include <stdexcept>
 #include <assimp/Importer.hpp>
 #include <assimp/Exporter.hpp>
 #include <assimp/version.h>
+#include <assimp/DefaultLogger.hpp>
 
 using namespace std;
+
+#define ENABLE_ASSIMP_LOGGING 0
 
 
 static void convert (string input, string assfile, string output, string format) {
@@ -15,6 +19,8 @@ static void convert (string input, string assfile, string output, string format)
     auto scene = importer.ReadFile(input, 0);
     if (!scene)
         throw runtime_error(input + ": " + importer.GetErrorString());
+
+    printColorStuff(scene);
 
     if (assfile != "") {
         printf("  [export] %s\n", assfile.c_str());
@@ -48,6 +54,10 @@ int main (int argc, char **argv) {
 
     printf("assimp version %d.%d.%d (%s @ %x)\n", aiGetVersionMajor(), aiGetVersionMinor(),
            aiGetVersionPatch(), aiGetBranchName(), aiGetVersionRevision());
+
+#if ENABLE_ASSIMP_LOGGING
+    Assimp::DefaultLogger::create("", Assimp::DefaultLogger::VERBOSE, aiDefaultLogStream_STDOUT);
+#endif
 
     try {
         convert(input, "input.assxml", "output-1.3mf", format);
