@@ -51,7 +51,7 @@ static void dumpModel (const aiScene *scene, const char *name, const char *forma
 }
 
 
-static void tryItWithAFile (const char *extn, const char *file, const char *dumpformat) {
+static void tryItWithAFile (const char *extn, const char *file, const char *dumpformat, bool flatten) {
 
     string filename;
 
@@ -69,11 +69,13 @@ static void tryItWithAFile (const char *extn, const char *file, const char *dump
         printf("[created zero-length dummy file: %s]\n", filename.c_str());
     }
 
+    unsigned ppflags = flatten ? aiProcess_PreTransformVertices : 0;
+
     {
-        printf("  ReadFile (pFlags=0):\n");
+        printf("  Importer::ReadFile (flags=0x%08x):\n", ppflags);
         Assimp::Importer importer;
         const aiScene *scene;
-        if (!(scene = importer.ReadFile(filename, 0)))
+        if (!(scene = importer.ReadFile(filename, ppflags)))
             printf("    ReadFile:                 error: %s\n", importer.GetErrorString());
         else
             printf("    ReadFile:                 success\n");
@@ -90,10 +92,10 @@ static void tryItWithAFile (const char *extn, const char *file, const char *dump
 
 #if TRY_READ_VALIDATED
     {
-        printf("  ReadFile (pFlags=aiProcess_ValidateDataStructure):\n");
+        printf("  Importer::ReadFile (flags=0x%08x):\n", ppflags | aiProcess_ValidateDataStructure);
         Assimp::Importer importer;
         const aiScene *scene;
-        if (!(scene = importer.ReadFile(filename, aiProcess_ValidateDataStructure)))
+        if (!(scene = importer.ReadFile(filename, ppflags | aiProcess_ValidateDataStructure)))
             printf("    ReadFile:                 error: %s\n", importer.GetErrorString());
         else
             printf("    ReadFile:                 success\n");
@@ -108,7 +110,7 @@ static void tryItWithAFile (const char *extn, const char *file, const char *dump
 
 #if TRY_FORCING_LOADER
     {
-        printf("  ReadFile via forced use of BaseImporter:\n");
+        printf("  GetImporter->ReadFile:\n");
         Assimp::Importer importer;
         Assimp::BaseImporter *base = importer.GetImporter(extn);
         if (base) {
@@ -140,7 +142,7 @@ static void tryItWithAFile (const char *extn, const char *file, const char *dump
 }
 
 
-static void showExtensionInfo (const char *extn, const char *file, const char *dumpformat) {
+static void showExtensionInfo (const char *extn, const char *file, const char *dumpformat, bool flatten) {
 
     Assimp::Importer importer;
 
@@ -163,7 +165,7 @@ static void showExtensionInfo (const char *extn, const char *file, const char *d
         printf("  ->GetInfo->mFileExtensions: %s\n", desc ? desc->mFileExtensions : "(null info)");
     }
 
-    tryItWithAFile(extn, file, dumpformat);
+    tryItWithAFile(extn, file, dumpformat, flatten);
 
     printf("---------------------------------------------------------------\n");
 
@@ -179,7 +181,8 @@ int main (int argc, char **argv) {
 #if TRY_FORCING_LOADER
         fprintf(stderr, "   -x[:format]      Export forced-import scenes for debugging (default format assxml).\n\n");
 #else
-        fprintf(stderr, "   -x[:format]      Export imported scenes for debugging (default format assxml).\n\n");
+        fprintf(stderr, "   -x[:format]      Export imported scenes for debugging (default format assxml).\n");
+        fprintf(stderr, "   -f               Flatten imported file with aiProcess_PreTransformVertices.\n\n");
 #endif
         return 1;
     }
@@ -192,6 +195,7 @@ int main (int argc, char **argv) {
            aiGetVersionPatch(), aiGetBranchName(), aiGetVersionRevision());
 
     string dumpformat;
+    bool flatten = false;
     for (int a = 1; a < argc; ++ a) {
         char *work = strdup(argv[a]);
         char *extn = work;
@@ -199,8 +203,12 @@ int main (int argc, char **argv) {
         if (file) *(file ++) = 0;
         if (!strcmp(extn, "-x")) // haaaaaaaaaaaaaaaaack
             dumpformat = (file ? file : "assxml");
+#if !TRY_FORCING_LOADER
+        else if (!strcmp(extn, "-f")) // HAAAAAAAAAAAAAAAAAAAAAAAAAAAAACK
+            flatten = true;
+#endif
         else
-            showExtensionInfo(extn, file, dumpformat == "" ? nullptr : dumpformat.c_str());
+            showExtensionInfo(extn, file, dumpformat == "" ? nullptr : dumpformat.c_str(), flatten);
         free(work);
     }
 
