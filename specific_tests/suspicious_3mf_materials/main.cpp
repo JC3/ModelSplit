@@ -6,14 +6,19 @@
 #include <assimp/Exporter.hpp>
 #include <assimp/version.h>
 #include <assimp/DefaultLogger.hpp>
+#include <assimp/LogStream.hpp>
 
 using namespace std;
 
-#define ENABLE_ASSIMP_LOGGING 0
+#define ENABLE_ASSIMP_LOGGING 1
+
+static const char FORMAT_MESSAGE[] = "1;37";
+static const char FORMAT_ERROR[] = "1;31";
 
 
 static void convert (string input, string assfile, string output, string format) {
 
+    ansip(FORMAT_MESSAGE);
     printf("\n[IMPORT] %s\n", input.c_str());
     Assimp::Importer importer;
     auto scene = importer.ReadFile(input, 0);
@@ -23,6 +28,7 @@ static void convert (string input, string assfile, string output, string format)
     printColorStuff(scene);
 
     if (assfile != "") {
+        ansip(FORMAT_MESSAGE);
         printf("  [EXPORT] %s\n", assfile.c_str());
         Assimp::Exporter exporter;
         if (exporter.Export(scene, "assxml", assfile) != AI_SUCCESS)
@@ -30,6 +36,7 @@ static void convert (string input, string assfile, string output, string format)
     }
 
     if (output != "") {
+        ansip(FORMAT_MESSAGE);
         printf("  [EXPORT] %s\n", output.c_str());
         Assimp::Exporter exporter;
         if (exporter.Export(scene, format, output) != AI_SUCCESS)
@@ -52,22 +59,29 @@ int main (int argc, char **argv) {
         return 1;
     }
 
+    initTerminal();
     printf("assimp version %d.%d.%d (%s @ %x)\n", aiGetVersionMajor(), aiGetVersionMinor(),
            aiGetVersionPatch(), aiGetBranchName(), aiGetVersionRevision());
 
 #if ENABLE_ASSIMP_LOGGING
-    Assimp::DefaultLogger::create("", Assimp::DefaultLogger::VERBOSE, aiDefaultLogStream_STDOUT);
+    Assimp::DefaultLogger::create("", Assimp::DefaultLogger::VERBOSE, 0)->attachStream(new AnsiLogStream());
 #endif
 
+    int result = 0;
     try {
         convert(input, "input.assxml", "output-1.3mf", format);
         convert("output-1.3mf", "output-1.assxml", "output-2.3mf", format);
         convert("output-2.3mf", "output-2.assxml", "output-3.3mf", format);
         convert("output-3.3mf", "output-3.assxml", "", "");
+        ansip(FORMAT_MESSAGE);
         printf("\n[FINISHED]\n");
     } catch (const exception &x) {
-        fprintf(stderr, "[error] %s\n", x.what());
-        return 1;
+        ansip(FORMAT_ERROR);
+        fprintf(stderr, "[ERROR] %s\n", x.what());
+        result = 1;
     }
+
+    doneTerminal();
+    return result;
 
 }
