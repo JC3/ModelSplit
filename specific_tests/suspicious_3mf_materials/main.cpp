@@ -14,7 +14,7 @@ using namespace std;
 
 static void convert (string input, string assfile, string output, string format) {
 
-    printf("[import] %s\n", input.c_str());
+    printf("\n[IMPORT] %s\n", input.c_str());
     Assimp::Importer importer;
     auto scene = importer.ReadFile(input, 0);
     if (!scene)
@@ -23,14 +23,14 @@ static void convert (string input, string assfile, string output, string format)
     printColorStuff(scene);
 
     if (assfile != "") {
-        printf("  [export] %s\n", assfile.c_str());
+        printf("  [EXPORT] %s\n", assfile.c_str());
         Assimp::Exporter exporter;
         if (exporter.Export(scene, "assxml", assfile) != AI_SUCCESS)
             throw runtime_error(assfile + ": " + exporter.GetErrorString());
     }
 
     if (output != "") {
-        printf("  [export] %s\n", output.c_str());
+        printf("  [EXPORT] %s\n", output.c_str());
         Assimp::Exporter exporter;
         if (exporter.Export(scene, format, output) != AI_SUCCESS)
             throw runtime_error(output + ": " + exporter.GetErrorString());
@@ -64,7 +64,7 @@ int main (int argc, char **argv) {
         convert("output-1.3mf", "output-1.assxml", "output-2.3mf", format);
         convert("output-2.3mf", "output-2.assxml", "output-3.3mf", format);
         convert("output-3.3mf", "output-3.assxml", "", "");
-        printf("[finished]\n");
+        printf("\n[FINISHED]\n");
     } catch (const exception &x) {
         fprintf(stderr, "[error] %s\n", x.what());
         return 1;
