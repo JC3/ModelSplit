@@ -99,7 +99,7 @@ static Element * safeget (Index index, Element **arr, Length narr) {
 }
 
 
-void printColorStuff (const aiScene *scene) {
+void printColorStuff (const aiScene *scene, bool verbose) {
 
     ansip(FORMAT_L0);
     printf("  <SCENE> '%s' meshes=%d materials=%d textures=%d\n", scene->mName.C_Str(),
@@ -117,20 +117,18 @@ void printColorStuff (const aiScene *scene) {
                 printf("      <TEXTURES> type=%d count=%d\n", t, n);
             anytex += n;
         }
-#if !SLIGHTLY_LESS_VERBOSE
-        if (!anytex)
+        if (!anytex && verbose)
             printf("      <TEXTURES> none present\n");
-#endif
         printf("      <PROPERTIES> count=%d capacity=%d\n", m->mNumProperties, m->mNumAllocated);
         for (unsigned p = 0; p < m->mNumProperties; ++ p) {
             auto prop = m->mProperties[p];
-#if (SLIGHTLY_LESS_VERBOSE || !PRINTED_DATA_CUTOFF)
-            printf("        <PROPERTY> '%s' type=%d len=%d\n", prop->mKey.C_Str(),
-                   prop->mType, prop->mDataLength);
-#else
-            printf("        <PROPERTY> '%s' type=%d len=%d data=%s\n", prop->mKey.C_Str(),
-                   prop->mType, prop->mDataLength, binstr(prop->mData, prop->mDataLength).c_str());
-#endif
+            if (!verbose || !PRINTED_DATA_CUTOFF) {
+                printf("        <PROPERTY> '%s' type=%d len=%d\n", prop->mKey.C_Str(),
+                       prop->mType, prop->mDataLength);
+            } else {
+                printf("        <PROPERTY> '%s' type=%d len=%d data=%s\n", prop->mKey.C_Str(),
+                       prop->mType, prop->mDataLength, binstr(prop->mData, prop->mDataLength).c_str());
+            }
         }
     }
 
@@ -149,19 +147,15 @@ void printColorStuff (const aiScene *scene) {
                 printf("      <VCOLORS %d> present\n", i);
             anycolors |= m->HasVertexColors(i);
         }
-#if !SLIGHTLY_LESS_VERBOSE
-        if (!anycolors)
+        if (!anycolors && verbose)
             printf("      <VCOLORS> none present\n");
-#endif
         for (unsigned i = 0; i < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++ i) {
             if (m->HasTextureCoords(i))
                 printf("      <TEXCOORDS %d> %dD present\n", i, m->mNumUVComponents[i]);
             anyuv |= m->HasTextureCoords(i);
         }
-#if !SLIGHTLY_LESS_VERBOSE
-        if (!anyuv)
+        if (!anyuv && verbose)
             printf("      <TEXCOORDS> none present\n");
-#endif
     }
 
     // tests cycle detection
