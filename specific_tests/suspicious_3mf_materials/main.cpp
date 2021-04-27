@@ -10,29 +10,24 @@ using namespace std;
 
 static void convert (string input, string assfile, string output, string format) {
 
-    if (output != "")
-        printf("[converting] %s -> %s\n", input.c_str(), output.c_str());
-    else
-        printf("[dumping] %s -> %s\n", input.c_str(), assfile.c_str());
-
+    printf("[import] %s\n", input.c_str());
     Assimp::Importer importer;
     auto scene = importer.ReadFile(input, 0);
     if (!scene)
         throw runtime_error(input + ": " + importer.GetErrorString());
 
-    if (output != "") {
-        Assimp::Exporter exporter;
-        if (exporter.Export(scene, format, output) != AI_SUCCESS)
-            throw runtime_error(output + ": " + exporter.GetErrorString());
-    }
-
-    if (output != "")
-        printf("[dumping] %s -> %s\n", input.c_str(), assfile.c_str());
-
-    {
+    if (assfile != "") {
+        printf("  [export] %s\n", assfile.c_str());
         Assimp::Exporter exporter;
         if (exporter.Export(scene, "assxml", assfile) != AI_SUCCESS)
             throw runtime_error(assfile + ": " + exporter.GetErrorString());
+    }
+
+    if (output != "") {
+        printf("  [export] %s\n", output.c_str());
+        Assimp::Exporter exporter;
+        if (exporter.Export(scene, format, output) != AI_SUCCESS)
+            throw runtime_error(output + ": " + exporter.GetErrorString());
     }
 
 }
