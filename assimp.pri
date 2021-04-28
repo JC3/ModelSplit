@@ -12,3 +12,8 @@ win32: DEPENDPATH += $$ASSIMP_ARCH_PATH/include
 
 INCLUDEPATH += $$ASSIMP_PATH/common/include
 DEPENDPATH += $$ASSIMP_PATH/common/include
+
+# backwards compatibility hack for this v5.0.1 version.
+# do not use this in newer releases!!!!
+DEFINES += "aiGetVersionPatch=aiGetVersionMinor"
+DEFINES += "ASSIMP_501_COMPAT"
