@@ -1,3 +1,7 @@
+## Build Note
+
+Qt isn't actually required. Compile the two .cpp files with your favorite compiler (only tested with MSVC 2019 though) if you don't have qmake.
+
 ## Description
 
 ```
