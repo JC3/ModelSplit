@@ -102,8 +102,13 @@ static Element * safeget (Index index, Element **arr, Length narr) {
 void printColorStuff (const aiScene *scene, bool verbose) {
 
     ansip(FORMAT_L0);
+#ifdef ASSIMP_501_COMPAT
+    printf("  <SCENE> meshes=%d materials=%d textures=%d\n",
+           scene->mNumMeshes, scene->mNumMaterials, scene->mNumTextures);
+#else
     printf("  <SCENE> '%s' meshes=%d materials=%d textures=%d\n", scene->mName.C_Str(),
            scene->mNumMeshes, scene->mNumMaterials, scene->mNumTextures);
+#endif
 
     for (unsigned k = 0; k < scene->mNumMaterials; ++ k) {
         auto m = scene->mMaterials[k];
