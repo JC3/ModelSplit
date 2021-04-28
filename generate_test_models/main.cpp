@@ -119,7 +119,7 @@ static aiMesh * withExtras (aiMesh *mesh, MeshExtras extras) {
 
     for (unsigned k = 0; k < AI_MAX_NUMBER_OF_COLOR_SETS; ++ k) {
         if (genColors[k] && !mesh->HasVertexColors(k)) {
-            aiColor3D base((k&4)!=0, (k&2)!=0, (k&1)!=0);
+            aiColor3D base(((k+1)&4)!=0, ((k+1)&2)!=0, ((k+1)&1)!=0);
             mesh->mColors[k] = new aiColor4D[mesh->mNumVertices];
             for (unsigned j = 0; j < mesh->mNumVertices; ++ j) {
                 float p = (float)j / (float)(mesh->mNumVertices - 1);
