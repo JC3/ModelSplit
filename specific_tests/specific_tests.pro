@@ -5,6 +5,7 @@ SUBDIRS += \
     decomposition_check \
     force_specific_importer \
     glb_import_assertion_failure \
+    canread_test \
     scene_tree_depth_test \
     suspicious_3mf_materials \
     x3d_importer_fallback \
