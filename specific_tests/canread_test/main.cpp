@@ -23,6 +23,7 @@
 #define EXIT_TEST_ERROR       82
 
 #define CANREAD_CHECKSIG      true
+#define VERBOSE_PROGRESS      1
 
 using namespace std;
 using path = filesystem::path;
@@ -177,6 +178,18 @@ static void writeReport (const path &reportfile, const vector<ModelResultPtr> &r
 }
 
 
+#if VERBOSE_PROGRESS
+static string rclip (string str, int maxwidth) {
+
+    if (str.length() <= maxwidth)
+        return str;
+    else
+        return "..." + str.substr(str.length() - (maxwidth - 3));
+
+}
+#endif
+
+
 static void setResult (vector<ModelResultPtr> &results, int fileidx, int importeridx,
                        bool readable, bool haderror, bool crashed, const string &message)
 {
@@ -198,10 +211,27 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
     result.crashed = crashed;
     result.message = message;
 
+#if VERBOSE_PROGRESS
+    static int lastfileidx = -1;
+    if (fileidx != lastfileidx) {
+        printf("\n[%3d/%3d] %48s: ", fileidx + 1, results.size(), rclip(filesystem::relative(modelresult->modelfile).string(), 48).c_str());
+        lastfileidx = fileidx;
+    }
+    if (crashed)
+        putchar('!');
+    else if (haderror)
+        putchar('x');
+    else if (readable)
+        putchar('Y');
+    else
+        putchar('.');
+    fflush(stdout);
+#else
     if (crashed)
         printf("%s (%d): crashed\n", filesystem::relative(modelresult->modelfile).string().c_str(), importeridx);
     else if (haderror)
         printf("%s (%d): exception: %s\n", filesystem::relative(modelresult->modelfile).string().c_str(), importeridx, message.c_str());
+#endif
 
 }
 
@@ -269,6 +299,10 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
         }
 
     }
+
+#if VERBOSE_PROGRESS
+    printf("\n");
+#endif
 
     if (lastretcode != EXIT_SUCCESS)
         printf("warning: unexpected return code %d (0x%x)\n", lastretcode, lastretcode);
