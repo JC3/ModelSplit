@@ -1,10 +1,14 @@
-TEMPLATE = app
+QT -= gui
+QT += xml
 CONFIG += c++17 console
 CONFIG -= app_bundle
-CONFIG -= qt
 SOURCES += \
         main.cpp
 
 include($$MODELSPLIT_ROOT/assimp.pri)
 
-HEADERS +=
+DISTFILES += \
+    report.css
+
+RESOURCES += \
+    resources.qrc

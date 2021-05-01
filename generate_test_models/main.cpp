@@ -27,7 +27,7 @@ typedef std::shared_ptr<aiScene> aiScenePtr;
 
 #define TEST_LARGE_MODELS     0
 #define LARGE_MODEL_FACES     1000000
-#define PRESERVE_IMPORT_TEST_MODELS 0
+#define PRESERVE_IMPORT_TEST_MODELS 1
 
 // issue workarounds
 #define ISSUE_3778_SKIP         0  // skip exporters mentioned in #3778, or...

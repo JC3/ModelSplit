@@ -1,0 +1,53 @@
+:root {
+    font-family: "Bahnschrift Condensed";
+}
+th {
+    text-align: left;
+    vertical-align: bottom;
+}
+th div {
+    writing-mode: vertical-lr;
+    transform: rotate(180deg);
+    padding-top: 0.25em;
+    width: 1em;
+    white-space: nowrap;
+}
+td.result {
+    border: 1px solid #888;
+}
+td.imp {
+    border: 2px solid #444;
+}
+td.pimp {
+    border: 3px solid #000;
+}
+table {
+    border-collapse: collapse;
+}
+td {
+    padding: 2px;
+    white-space: nowrap;
+}
+th.extn, td.extn {
+    padding-right: 1em;
+    text-align: right;
+}
+th.filename, td.filename {
+    padding-left: 1em;
+}
+.canread {
+    background: #0f0;
+}
+.haderror {
+    background: #fa0;
+}
+.crashed {
+    background: #f00;
+}
+.untested {
+    background: #888;
+}
+footer {
+    padding-top: 4em;
+
+}

@@ -1,6 +1,18 @@
 // warning: this code is a mess.
 // note to self: you'll never remember how this works.
 
+#ifndef HTML_OUTPUT
+#  define HTML_OUTPUT 1 // zero disables and also removes qt dependency
+#endif
+
+#if HTML_OUTPUT
+#  include <QCoreApplication>
+#  include <QDomDocument>
+#  include <QDomNode>
+#  include <QDomElement>
+#  include <QFile>
+#  include <QTextStream>
+#endif
 #include <cstdio>
 #include <list>
 #include <string>
@@ -126,15 +138,181 @@ struct Result {
 struct ModelResult {
     path modelfile;
     vector<Result> results;
-    ModelResult (const path &modelfile, int importers) : modelfile(modelfile), results(importers) { }
+    set<int> importersForExtension;
+    optional<int> primaryImporter;
+    ModelResult (const path &modelfile, int importers) : modelfile(modelfile), results(importers) { queryImporters(); }
+private:
+    void queryImporters ();
 };
 
 typedef shared_ptr<ModelResult> ModelResultPtr;
 
+static string strtolower (string s) {
+    transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return tolower(c); });
+    return s;
+}
+
+void ModelResult::queryImporters () {
+
+    static map<string,set<int> > all;
+    static map<string,optional<int> > primary;
+
+    if (all.empty()) {
+        printf("initializing file extension info...\n");
+        Assimp::Importer importer;
+        for (unsigned k = 0; k < importer.GetImporterCount(); ++ k) {
+            auto info = importer.GetImporterInfo(k);
+            istringstream iss(info->mFileExtensions);
+            for (auto ext = istream_iterator<string>(iss); ext != istream_iterator<string>(); ++ ext) {
+                string e = strtolower(*ext);
+                all[e].insert(k);
+                all["." + e].insert(k);
+                printf("  %s: %d (%s)\n", e.c_str(), k, info->mName);
+            }
+        }
+    }
+
+    string extn = modelfile.extension().string();
+
+    if (extn.empty()) {
+        importersForExtension.clear();
+        primaryImporter.reset();
+    } else {
+        extn = strtolower(extn);
+        importersForExtension = all[extn];
+        auto pit = primary.find(extn);
+        if (pit == primary.end()) {
+            printf("caching info for %s...\n", extn.c_str());
+            Assimp::Importer imp;
+            int index = (int)imp.GetImporterIndex(extn.c_str());
+            primaryImporter = (index == -1 ? optional<int>() : optional<int>(index));
+            primary[extn] = primaryImporter;
+        } else {
+            primaryImporter = pit->second;
+        }
+    }
+
+}
+
+
+#if HTML_OUTPUT
+
+static QDomElement addChild (QDomNode addto, const QString &tag) {
+
+    QDomElement node = addto.ownerDocument().createElement(tag);
+    addto.appendChild(node);
+    return node;
+
+}
+
+struct StringHack {
+    StringHack (const QString &str) : s(str) { }
+    StringHack (const string &str) : s(QString::fromStdString(str)) { }
+    StringHack (const char *str) : s(str) { }
+    operator QString () const { return s; }
+    QString s;
+};
+
+static QDomElement addChild (QDomNode addto, const QString &tag, const StringHack &str) {
+
+    QDomElement node = addChild(addto, tag);
+    node.appendChild(addto.ownerDocument().createTextNode(str));
+    return node;
+
+}
+
+static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
+
+    printf("writing %s (html)...\n", reportfile.string().c_str());
+
+    Assimp::Importer imp;
+
+    QDomDocument doc("html");
+    QDomElement html = addChild(doc, "html");
+    html.setAttribute("lang", "en");
+    QDomElement head = addChild(html, "head");
+    addChild(head, "title", QString("CanRead Report (%1 checkSig)").arg(CANREAD_CHECKSIG ? "with" : "without"));
+    QDomElement body = addChild(html, "body");
+    QDomElement main = addChild(body, "main");
+
+#if 0
+    QDomElement csslink = addChild(head, "link");
+    csslink.setAttribute("rel", "stylesheet");
+    csslink.setAttribute("href", "report.css");
+#else
+    //QString stylesheet = QString::fromLatin1(QResource(":/html/css").uncompressedData());
+    {
+        QFile fstylesheet(":/html/css");
+        fstylesheet.open(QFile::ReadOnly | QFile::Text);
+        addChild(head, "style", QString::fromLatin1(fstylesheet.readAll())).setAttribute("type", "text/css");
+    }
+#endif
+
+    QDomElement table = addChild(addChild(main, "article"), "table");
+    QDomElement header = addChild(table, "tr");
+
+    addChild(header, "th", "Extn").setAttribute("class", "extn");
+    for (int k = 0; k < importers; ++ k)
+        addChild(addChild(header, "th"), "div", imp.GetImporterInfo(k)->mFileExtensions);
+    addChild(header, "th", "Model File").setAttribute("class", "filename");
+
+    for (ModelResultPtr result : results) {
+        QDomElement row = addChild(table, "tr");
+        addChild(row, "td", result->modelfile.extension().string()).setAttribute("class", "extn");
+        for (int k = 0; k < importers; ++ k) {
+            QStringList classes;
+            Result res = (k < result->results.size() ? result->results[k] : Result());
+            classes.append("result");
+            //
+            if (!res.tested)
+                classes.append("untested");
+            else if (res.crashed)
+                classes.append("crashed");
+            else if (res.haderror)
+                classes.append("haderror");
+            else if (res.canread)
+                classes.append("canread");
+            else
+                classes.append("cantread");
+            //
+            if (result->importersForExtension.find(k) != result->importersForExtension.end())
+                classes.append("imp");
+            if (result->primaryImporter == k)
+                classes.append("pimp");
+            QDomElement td = addChild(row, "td");
+            if (!classes.empty())
+                td.setAttribute("class", classes.join(' '));
+            if (!res.message.empty())
+                td.setAttribute("title", QString::fromStdString(res.message));
+        }
+        addChild(row, "td", filesystem::relative(result->modelfile).string()).setAttribute("class", "filename");
+    }
+
+    QString versionstr = QString().sprintf("assimp version: %d.%d.%d (%s @ %x)",
+                                           aiGetVersionMajor(),
+                                           aiGetVersionMinor(),
+                                           aiGetVersionPatch(),
+                                           aiGetBranchName(),
+                                           aiGetVersionRevision());
+    addChild(addChild(body, "footer"), "div", versionstr);
+
+    QFile out(reportfile.string().c_str());
+    if (!out.open(QFile::WriteOnly | QFile::Text))
+        throw runtime_error(out.errorString().toStdString());
+    else {
+        QTextStream outs(&out);
+        doc.save(outs, 1);
+        out.close();
+    }
+
+}
+
+#endif
+
 
 static void writeReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
-    printf("writing %s...\n", reportfile.string().c_str());
+    printf("writing %s (csv)...\n", reportfile.string().c_str());
 
     FILE *f = fopen(reportfile.string().c_str(), "wt");
     if (!f)
@@ -214,7 +392,7 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
 #if VERBOSE_PROGRESS
     static int lastfileidx = -1;
     if (fileidx != lastfileidx) {
-        printf("\n[%3d/%3d] %48s: ", fileidx + 1, results.size(), rclip(filesystem::relative(modelresult->modelfile).string(), 48).c_str());
+        printf("\n[%3d/%3d] %48s: ", fileidx + 1, (int)results.size(), rclip(filesystem::relative(modelresult->modelfile).string(), 48).c_str());
         lastfileidx = fileidx;
     }
     if (crashed)
@@ -308,6 +486,9 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
         printf("warning: unexpected return code %d (0x%x)\n", lastretcode, lastretcode);
 
     writeReport(filesystem::absolute("report.csv"), results, importers);
+#if HTML_OUTPUT
+    writeHtmlReport(filesystem::absolute("report.html"), results, importers);
+#endif
 
     return EXIT_SUCCESS;
 
@@ -315,6 +496,10 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
 
 
 int main (int argc, char **argv) {
+
+#if HTML_OUTPUT
+    QCoreApplication app(argc, argv);
+#endif
 
     // -------- command line -------------------------------------------------
 
