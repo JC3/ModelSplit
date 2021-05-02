@@ -524,7 +524,7 @@ static string quoteCSV (string value) {
 
     string quoted;
 
-    for (int k = 0; k < value.size(); ++ k) {
+    for (int k = 0; k < (int)value.size(); ++ k) {
         if (value[k] == '\"')
             quoted += "\"\"";
         else
@@ -710,7 +710,7 @@ int main (int argc, char * argv[]) {
 
         for (auto presult = results.begin(); presult != results.end(); ++ presult) {
             if (presult->importerIndex != -1) {
-                assert(presult->importerIndex >= 0 && presult->importerIndex < importers.size());
+                assert(presult->importerIndex >= 0 && presult->importerIndex < (int)importers.size());
                 assert(presult->exporter != nullptr);
                 importers[presult->importerIndex].results.push_back(*presult);
                 importers[presult->importerIndex].exporters.insert(presult->exporterIndex);
