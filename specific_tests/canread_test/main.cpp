@@ -46,6 +46,7 @@
 #define CANREAD_CHECKSIG      true
 #define VERBOSE_PROGRESS      1
 #define FLOATING_HEADER       1  // for html output
+#define FILTER_COFF_OBJ       1
 
 using namespace std;
 using path = filesystem::path;
@@ -385,17 +386,6 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
 #if PDF_OUTPUT
     for (QDomElement &e : removeForPdf)
         e.parentNode().removeChild(e);
-    {
-        QFile out("check.html");
-        if (!out.open(QFile::WriteOnly | QFile::Text))
-            throw runtime_error(out.errorString().toStdString());
-        else {
-            QTextStream outs(&out);
-            doc.save(outs, 1);
-            out.close();
-        }
-    }
-
     path pdffile = reportfile;
     writePdfReport(pdffile.replace_extension("pdf"), doc);
 #else
@@ -592,6 +582,30 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
 }
 
 
+#if FILTER_COFF_OBJ
+static bool objLooksLikeCOFF (const path &thefile) {
+
+    static const uint8_t MX86[2] = { 0x4C, 0x01 };
+    static const uint8_t MX64[2] = { 0x64, 0x86 };
+    static const uint8_t MITA[2] = { 0x00, 0x02 };
+
+    uint8_t machine[2];
+    bool readok = false;
+
+    FILE *f = fopen(thefile.string().c_str(), "rb");
+    if (f) {
+        readok = (fread(machine, 2, 1, f) == 1);
+        fclose(f);
+    }
+
+    return (readok && (!memcmp(machine, MX86, 2)
+                       || !memcmp(machine, MX64, 2)
+                       || !memcmp(machine, MITA, 2)));
+
+}
+#endif
+
+
 int main (int argc, char **argv) {
 
 #if HTML_OUTPUT
@@ -643,8 +657,17 @@ int main (int argc, char **argv) {
 
     char line[5000], *trimmed;
     while (fgets(line, sizeof(line), f)) {
-        if (*(trimmed = trim(line)))
-            testfiles.push_back(filesystem::absolute(basedir / trimmed));
+        if (*(trimmed = trim(line))) {
+            path modelfile = filesystem::absolute(basedir / trimmed);
+#if FILTER_COFF_OBJ
+            if (modelfile.extension().string() == ".obj" && objLooksLikeCOFF(modelfile)) {
+                if (!runner)
+                    printf("skipping coff file: %s\n", filesystem::relative(modelfile).string().c_str());
+                continue;
+            }
+#endif
+            testfiles.push_back(modelfile);
+        }
     }
 
     fclose(f);
