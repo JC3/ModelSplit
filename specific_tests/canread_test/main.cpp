@@ -5,13 +5,22 @@
 #  define HTML_OUTPUT 1 // zero disables and also removes qt dependency
 #endif
 
+#ifndef PDF_OUTPUT
+#  define PDF_OUTPUT 1 // zero disables; requires HTML_OUTPUT
+#endif
+
 #if HTML_OUTPUT
-#  include <QCoreApplication>
 #  include <QDomDocument>
 #  include <QDomNode>
 #  include <QDomElement>
 #  include <QFile>
 #  include <QTextStream>
+#  if PDF_OUTPUT
+#    include <QWebEnginePage>
+#    include <QApplication>
+#  else
+#    include <QCoreApplication>
+#  endif
 #endif
 #include <cstdio>
 #include <list>
@@ -36,6 +45,7 @@
 
 #define CANREAD_CHECKSIG      true
 #define VERBOSE_PROGRESS      1
+#define FLOATING_HEADER       1  // for html output
 
 using namespace std;
 using path = filesystem::path;
@@ -92,7 +102,7 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
     Assimp::DefaultIOSystem io;
     int importers = (int)aiGetImportFormatCount();
 
-    for (int nfile = fileidx; nfile < testfiles.size(); ++ nfile) {
+    for (int nfile = fileidx; nfile < (int)testfiles.size(); ++ nfile) {
         for (int nimp = importeridx; nimp < importers; ++ nimp) {
             writeMessagef('s', "%d %d", nfile, nimp);
             bool readable = false;
@@ -221,11 +231,57 @@ static QDomElement addChild (QDomNode addto, const QString &tag, const StringHac
 
 }
 
+static QDomElement htmlhack (QDomElement node) {
+
+    node.appendChild(node.ownerDocument().createComment(""));
+    return node;
+
+}
+
+template <typename Value>
+static QDomElement withAttribute (QDomElement e, QString k, Value v) {
+    e.setAttribute(k, v);
+    return e;
+}
+
+#if PDF_OUTPUT
+static void writePdfReport (const path &reportfile, const QDomDocument &html) {
+
+    printf("writing %s (pdf)...\n", reportfile.string().c_str());
+
+    QWebEnginePage renderer;
+    bool complete = false;
+
+    QObject::connect(&renderer, &QWebEnginePage::loadFinished, [&] (bool ok) {
+        assert(ok);
+        printf("[pdf] html rendered, writing pdf...\n");
+        renderer.printToPdf(QString::fromStdString(reportfile.string()));
+    });
+
+    QObject::connect(&renderer, &QWebEnginePage::pdfPrintingFinished, [&] (QString, bool ok) {
+        if (!ok)
+            printf("[pdf] an error occurred.\n");
+        else
+            printf("[pdf] pdf written ok.\n");
+        complete = true;
+    });
+
+    printf("[pdf] rendering html...\n");
+    renderer.setHtml(html.toString(-1));
+
+    while (!complete) {
+        QApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 100);
+    }
+
+}
+#endif
+
 static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
     printf("writing %s (html)...\n", reportfile.string().c_str());
 
     Assimp::Importer imp;
+    QList<QDomElement> removeForPdf;
 
     QDomDocument doc("html");
     QDomElement html = addChild(doc, "html");
@@ -235,12 +291,26 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     QDomElement body = addChild(html, "body");
     QDomElement main = addChild(body, "main");
 
+#if FLOATING_HEADER
+    QDomElement ftiemeta = addChild(head, "meta");
+    ftiemeta.setAttribute("http-equiv", "X-UA-Compatible");
+    ftiemeta.setAttribute("content", "IE=10; IE=9; IE=8; IE=7; IE=EDGE");
+    removeForPdf += ftiemeta;
+    removeForPdf += withAttribute(htmlhack(addChild(head, "script")), "src", "https://code.jquery.com/jquery-3.6.0.min.js");
+    removeForPdf += withAttribute(htmlhack(addChild(head, "script")), "src", "https://code.jquery.com/ui/1.12.1/jquery-ui.min.js");
+    removeForPdf += withAttribute(htmlhack(addChild(head, "script")), "src", "https://cdnjs.cloudflare.com/ajax/libs/floatthead/2.2.1/jquery.floatThead.min.js");
+    {
+        QFile f(":/html/js");
+        f.open(QFile::ReadOnly | QFile::Text);
+        removeForPdf += addChild(head, "script", QString::fromLatin1(f.readAll()));
+    }
+#endif
+
 #if 0
     QDomElement csslink = addChild(head, "link");
     csslink.setAttribute("rel", "stylesheet");
     csslink.setAttribute("href", "report.css");
 #else
-    //QString stylesheet = QString::fromLatin1(QResource(":/html/css").uncompressedData());
     {
         QFile fstylesheet(":/html/css");
         fstylesheet.open(QFile::ReadOnly | QFile::Text);
@@ -249,19 +319,24 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
 #endif
 
     QDomElement table = addChild(addChild(main, "article"), "table");
-    QDomElement header = addChild(table, "tr");
+    table.setAttribute("id", "report");
+    QDomElement thead = addChild(table, "thead");
+    QDomElement tbody = addChild(table, "tbody");
+    QDomElement header = addChild(thead, "tr");
 
     addChild(header, "th", "Extn").setAttribute("class", "extn");
-    for (int k = 0; k < importers; ++ k)
-        addChild(addChild(header, "th"), "div", imp.GetImporterInfo(k)->mFileExtensions);
+    for (int k = 0; k < importers; ++ k) {
+        QString label = imp.GetImporterInfo(k)->mFileExtensions;
+        addChild(addChild(header, "th"), "div", label).setAttribute("title", label);
+    }
     addChild(header, "th", "Model File").setAttribute("class", "filename");
 
     for (ModelResultPtr result : results) {
-        QDomElement row = addChild(table, "tr");
+        QDomElement row = addChild(tbody, "tr");
         addChild(row, "td", result->modelfile.extension().string()).setAttribute("class", "extn");
         for (int k = 0; k < importers; ++ k) {
             QStringList classes;
-            Result res = (k < result->results.size() ? result->results[k] : Result());
+            Result res = (k < (int)result->results.size() ? result->results[k] : Result());
             classes.append("result");
             //
             if (!res.tested)
@@ -296,14 +371,36 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                                            aiGetVersionRevision());
     addChild(addChild(body, "footer"), "div", versionstr);
 
-    QFile out(reportfile.string().c_str());
-    if (!out.open(QFile::WriteOnly | QFile::Text))
-        throw runtime_error(out.errorString().toStdString());
-    else {
-        QTextStream outs(&out);
-        doc.save(outs, 1);
-        out.close();
+    {
+        QFile out(reportfile.string().c_str());
+        if (!out.open(QFile::WriteOnly | QFile::Text))
+            throw runtime_error(out.errorString().toStdString());
+        else {
+            QTextStream outs(&out);
+            doc.save(outs, 1);
+            out.close();
+        }
     }
+
+#if PDF_OUTPUT
+    for (QDomElement &e : removeForPdf)
+        e.parentNode().removeChild(e);
+    {
+        QFile out("check.html");
+        if (!out.open(QFile::WriteOnly | QFile::Text))
+            throw runtime_error(out.errorString().toStdString());
+        else {
+            QTextStream outs(&out);
+            doc.save(outs, 1);
+            out.close();
+        }
+    }
+
+    path pdffile = reportfile;
+    writePdfReport(pdffile.replace_extension("pdf"), doc);
+#else
+    Q_UNUSED(removeForPdf);
+#endif
 
 }
 
@@ -359,7 +456,7 @@ static void writeReport (const path &reportfile, const vector<ModelResultPtr> &r
 #if VERBOSE_PROGRESS
 static string rclip (string str, int maxwidth) {
 
-    if (str.length() <= maxwidth)
+    if ((int)str.length() <= maxwidth)
         return str;
     else
         return "..." + str.substr(str.length() - (maxwidth - 3));
@@ -372,11 +469,11 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
                        bool readable, bool haderror, bool crashed, const string &message)
 {
 
-    if (fileidx < 0 || fileidx >= results.size())
+    if (fileidx < 0 || fileidx >= (int)results.size())
         throw runtime_error("setResult: bad file index");
     ModelResultPtr modelresult = results[fileidx];
 
-    if (importeridx < 0 || importeridx >= modelresult->results.size())
+    if (importeridx < 0 || importeridx >= (int)modelresult->results.size())
         throw runtime_error("setResult: bad importer index");
     Result &result = modelresult->results[importeridx];
 
@@ -423,7 +520,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
     for (path modelfile : testfiles)
         results.push_back(ModelResultPtr(new ModelResult(modelfile, importers)));
 
-    while (fileidx < testfiles.size() && importeridx < importers) {
+    while (fileidx < (int)testfiles.size() && importeridx < importers) {
 
         string command = makeCommand(myself, fileidx, importeridx, listfile, basedir);
         FILE *p = popen(command.c_str(), "rt");
@@ -445,7 +542,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 intest = true;
                 haderror = false;
                 mreadable = false;
-                if (curfileidx < 0 || curfileidx >= testfiles.size() || curimporteridx < 0 || curimporteridx >= importers)
+                if (curfileidx < 0 || curfileidx >= (int)testfiles.size() || curimporteridx < 0 || curimporteridx >= importers)
                     throw runtime_error("bad s index received");
             } else if (type == 'f' && intest && data && sscanf(data, "%d %d %d", &mfileidx, &mimporteridx, &mreadable) == 3) {
                 if (mfileidx != curfileidx || mimporteridx != curimporteridx)
@@ -498,7 +595,11 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
 int main (int argc, char **argv) {
 
 #if HTML_OUTPUT
+#  if PDF_OUTPUT
+    QApplication app(argc, argv);
+#  else
     QCoreApplication app(argc, argv);
+#  endif
 #endif
 
     // -------- command line -------------------------------------------------

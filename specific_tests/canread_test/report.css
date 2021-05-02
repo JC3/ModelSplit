@@ -11,6 +11,8 @@ th div {
     padding-top: 0.25em;
     width: 1em;
     white-space: nowrap;
+    max-height: 6em;
+    overflow: hidden;
 }
 td.result {
     border: 1px solid #888;
@@ -49,5 +51,7 @@ th.filename, td.filename {
 }
 footer {
     padding-top: 4em;
-
+}
+thead {
+    background: white;
 }

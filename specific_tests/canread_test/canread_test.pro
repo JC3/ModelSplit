@@ -1,5 +1,5 @@
-QT -= gui
-QT += xml
+#QT -= gui
+QT += xml webenginewidgets
 CONFIG += c++17 console
 CONFIG -= app_bundle
 SOURCES += \
@@ -8,7 +8,8 @@ SOURCES += \
 include($$MODELSPLIT_ROOT/assimp.pri)
 
 DISTFILES += \
-    report.css
+    report.css \
+    report.js
 
 RESOURCES += \
     resources.qrc

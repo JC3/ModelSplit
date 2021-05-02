@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/html">
         <file alias="css">report.css</file>
+        <file alias="js">report.js</file>
     </qresource>
 </RCC>
