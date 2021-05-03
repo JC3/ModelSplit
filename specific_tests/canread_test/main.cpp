@@ -35,6 +35,8 @@
 #include <assimp/BaseImporter.h>
 #include <assimp/cimport.h>
 #include <assimp/DefaultIOSystem.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 #ifdef _WIN32
 #  define popen _popen
@@ -45,7 +47,13 @@
 #define EXIT_OTHER_EXCEPTION  81
 #define EXIT_TEST_ERROR       82
 
-#define CANREAD_CHECKSIG      true
+#define TEST_CANREAD          0
+#define TEST_CANREAD_CHECKSIG 1
+#define TEST_READ             2
+#define TEST_IMPORT           3
+
+#define WHICH_TEST            TEST_CANREAD_CHECKSIG
+#define VALIDATE_SCENES       1   // only relevant for TEST_IMPORT
 #define VERBOSE_PROGRESS      1
 #define FILTER_COFF_OBJ       1
 
@@ -57,6 +65,13 @@
 
 using namespace std;
 using path = filesystem::path;
+
+
+// for debug *and* release configurations
+#define always_assert(expr) do { if (!(expr)) { \
+      fprintf(stderr, "always_assert(%s:%d): %s\n", __FILE__, __LINE__, #expr); \
+      abort(); \
+    } } while (0)
 
 
 static char * trim (char *str) {
@@ -76,9 +91,9 @@ static char * trim (char *str) {
 static void writeMessage (char kind, const string &detail) {
 
     if (!detail.empty())
-        printf("%c %s\n", kind, detail.c_str());
+        printf("\n!@#$ %c %s\n", kind, detail.c_str());
     else
-        printf("%c\n", kind);
+        printf("\n!@#$ %c\n", kind);
 
     fflush(stdout);
 
@@ -111,27 +126,65 @@ struct test_error : public std::runtime_error {
 
 static int runClient (const vector<path> &testfiles, int fileidx, int importeridx) {
 
+#if WHICH_TEST != TEST_IMPORT
     Assimp::DefaultIOSystem io;
     int importers = (int)aiGetImportFormatCount();
+#else
+    (void)importeridx;
+#endif
 
     for (int nfile = fileidx; nfile < (int)testfiles.size(); ++ nfile) {
+#if WHICH_TEST == TEST_IMPORT
+        writeMessagef('S', "%d", nfile);
+        bool readable = false;
+        bool emptyscene = false;
+        Assimp::Importer importer;
+        try {
+#  if VALIDATE_SCENES
+            readable = (importer.ReadFile(testfiles[nfile].string(), aiProcess_ValidateDataStructure) != nullptr);
+#  else
+            readable = (importer.ReadFile(testfiles[nfile].string(), 0) != nullptr);
+#  endif
+            if (!readable)
+                writeMessage('E', importer.GetErrorString());
+            else
+                emptyscene = !importer.GetScene()->HasMeshes();
+        } catch (const std::exception &x) {
+            writeMessage('e', x.what());
+        } catch (...) {
+            writeMessage('e', "unknown exception");
+        }
+        int nimp = importer.GetPropertyInteger("importerIndex", -1);
+        writeMessagef('F', "%d %d %d %d", nfile, nimp, (int)readable, (int)emptyscene);
+#else
         for (int nimp = importeridx; nimp < importers; ++ nimp) {
             writeMessagef('s', "%d %d", nfile, nimp);
             bool readable = false;
+            bool emptyscene = false;
             try {
                 Assimp::Importer importer;
                 Assimp::BaseImporter *loader = importer.GetImporter(nimp);
                 if (!loader)
                     throw runtime_error("no loader");
-                readable = loader->CanRead(testfiles[nfile].string(), &io, CANREAD_CHECKSIG);
+#  if WHICH_TEST == TEST_CANREAD
+                readable = loader->CanRead(testfiles[nfile].string(), &io, false);
+#  elif WHICH_TEST == TEST_CANREAD_CHECKSIG
+                readable = loader->CanRead(testfiles[nfile].string(), &io, true);
+#  elif WHICH_TEST == TEST_READ
+                aiScene *scene = loader->ReadFile(&importer, testfiles[nfile].string(), &io);
+                readable = (scene != nullptr);
+                emptyscene = (scene && !scene->HasMeshes());
+                delete scene;
+#  endif
             } catch (const std::exception &x) {
                 writeMessage('e', x.what());
             } catch (...) {
                 writeMessage('e', "unknown exception");
             }
-            writeMessagef('f', "%d %d %d", nfile, nimp, (int)readable);
+            writeMessagef('f', "%d %d %d %d", nfile, nimp, (int)readable, (int)emptyscene);
         }
         importeridx = 0;
+#endif
     }
 
     return EXIT_SUCCESS;
@@ -151,10 +204,11 @@ static string makeCommand (const path &myself, int fileidx, int importeridx, con
 struct Result {
     bool tested;
     bool canread;
+    bool emptyscene;
     bool haderror;
     bool crashed;
     string message;
-    Result () : tested(false), canread(false), haderror(false), crashed(false) { }
+    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false) { }
 };
 
 struct ModelResult {
@@ -162,7 +216,19 @@ struct ModelResult {
     vector<Result> results;
     set<int> importersForExtension;
     optional<int> primaryImporter;
-    ModelResult (const path &modelfile, int importers) : modelfile(modelfile), results(importers) { queryImporters(); }
+#if WHICH_TEST == TEST_IMPORT
+    optional<int> usedImporter;
+    string usedMessage;
+    bool usedEmptyScene;
+    bool usedReadable;
+#endif
+    ModelResult (const path &modelfile, int importers) :  modelfile(modelfile), results(importers) {
+#if WHICH_TEST == TEST_IMPORT
+        usedEmptyScene = false;
+        usedReadable = false;
+#endif
+        queryImporters();
+    }
 private:
     void queryImporters ();
 };
@@ -274,7 +340,7 @@ static void writePdfReport (const path &reportfile, const QDomDocument &html) {
     bool complete = false;
 
     QObject::connect(&renderer, &QWebEnginePage::loadFinished, [&] (bool ok) {
-        assert(ok);
+        always_assert(ok);
         printf("    [pdf] html rendered, generating pdf...\n");
         QPageLayout layout(QPageSize(QPageSize::A4), QPageLayout::Landscape, QMarginsF());
         renderer.printToPdf(QString::fromStdString(reportfile.string()), layout);
@@ -306,7 +372,6 @@ static QString embeddedFontCSS (const QString &fontfile, const QString &family) 
 
     QString data;
     if (fontfile.startsWith(":")) {
-        printf("font from resource\n");
         data = QString::fromLatin1(QResource(fontfile).uncompressedData().toBase64());
     } else {
         QFile f(fontfile);
@@ -351,13 +416,27 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     printf("writing %s (html)...\n", reportfile.string().c_str());
 
     Assimp::Importer imp;
-    QList<QDomElement> removeForPdf;
+    QList<QDomElement> removeForPdf; 
+
+#if WHICH_TEST == TEST_CANREAD
+    static const char PAGE_TITLE[] = "CanRead(false) Report";
+#elif WHICH_TEST == TEST_CANREAD_CHECKSIG
+    static const char PAGE_TITLE[] = "CanRead(true) Report";
+#elif WHICH_TEST == TEST_READ
+    static const char PAGE_TITLE[] = "BaseImporter::Read Report";
+#elif WHICH_TEST == TEST_IMPORT
+#  if VALIDATE_SCENES
+    static const char PAGE_TITLE[] = "Importer::Read+Validate Report";
+#  else
+    static const char PAGE_TITLE[] = "Importer::Read Report";
+#  endif
+#endif
 
     QDomDocument doc("html");
     QDomElement html = addChild(doc, "html");
     html.setAttribute("lang", "en");
     QDomElement head = addChild(html, "head");
-    addChild(head, "title", QString("CanRead Report (%1 checkSig)").arg(CANREAD_CHECKSIG ? "with" : "without"));
+    addChild(head, "title", PAGE_TITLE);
     QDomElement body = addChild(html, "body");
     QDomElement main = addChild(body, "main");
 
@@ -402,6 +481,17 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
 
     for (ModelResultPtr result : results) {
         QDomElement row = addChild(tbody, "tr");
+#if WHICH_TEST == TEST_IMPORT
+        if (!result->usedImporter.has_value()) {
+            row.setAttribute("class", "noimp");
+            if (result->usedEmptyScene)
+                row.setAttribute("class", row.attribute("class") + " u_emptyscene");
+            if (result->usedReadable)
+                row.setAttribute("class", row.attribute("class") + " u_canread");
+            if (!result->usedMessage.empty())
+                row.setAttribute("title", QString::fromStdString(result->usedMessage));
+        }
+#endif
         addChild(row, "td", result->modelfile.extension().string()).setAttribute("class", "extn");
         for (int k = 0; k < importers; ++ k) {
             QStringList classes;
@@ -419,6 +509,8 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
             else
                 classes.append("cantread");
             //
+            if (res.emptyscene)
+                classes.append("emptyscene");
             if (result->importersForExtension.find(k) != result->importersForExtension.end())
                 classes.append("imp");
             if (result->primaryImporter == k)
@@ -524,25 +616,39 @@ static string rclip (string str, int maxwidth) {
 
 
 static void setResult (vector<ModelResultPtr> &results, int fileidx, int importeridx,
-                       bool readable, bool haderror, bool crashed, const string &message)
+                       bool readable, bool emptyscene, bool haderror, bool crashed,
+                       const string &message)
 {
 
     if (fileidx < 0 || fileidx >= (int)results.size())
         throw runtime_error("setResult: bad file index");
     ModelResultPtr modelresult = results[fileidx];
 
-    if (importeridx < 0 || importeridx >= (int)modelresult->results.size())
-        throw runtime_error("setResult: bad importer index");
-    Result &result = modelresult->results[importeridx];
+#if WHICH_TEST == TEST_IMPORT
+    modelresult->usedMessage = message;
+    modelresult->usedEmptyScene = emptyscene;
+    modelresult->usedReadable = readable;
+    if (importeridx != -1) {
+        modelresult->usedImporter = importeridx;
+#endif
+        if (importeridx < 0 || importeridx >= (int)modelresult->results.size())
+            throw runtime_error("setResult: bad importer index");
+        Result &result = modelresult->results[importeridx];
 
-    if (result.tested)
-        throw runtime_error("setResult: test already performed");
+        if (result.tested)
+            throw runtime_error("setResult: test already performed");
 
-    result.tested = true;
-    result.canread = readable;
-    result.haderror = haderror;
-    result.crashed = crashed;
-    result.message = message;
+        result.tested = true;
+        result.canread = readable;
+        result.emptyscene = emptyscene;
+        result.haderror = haderror;
+        result.crashed = crashed;
+        result.message = message;
+#if WHICH_TEST == TEST_IMPORT
+    } else {
+        modelresult->usedImporter.reset();
+    }
+#endif
 
 #if VERBOSE_PROGRESS
     static int lastfileidx = -1;
@@ -569,6 +675,10 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
 }
 
 
+#ifdef _WIN32
+extern "C" void __stdcall OutputDebugStringA (const char *);
+#endif
+
 static int runServer (const vector<path> &testfiles, const path &myself, const path &listfile, const path &basedir) {
 
     int fileidx = 0, importeridx = 0;
@@ -578,7 +688,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
     for (path modelfile : testfiles)
         results.push_back(ModelResultPtr(new ModelResult(modelfile, importers)));
 
-    while (fileidx < (int)testfiles.size() && importeridx < importers) {
+    while (fileidx < (int)testfiles.size() && (WHICH_TEST == TEST_IMPORT || importeridx < importers)) {
 
         string command = makeCommand(myself, fileidx, importeridx, listfile, basedir);
         FILE *p = popen(command.c_str(), "rt");
@@ -586,13 +696,44 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             throw runtime_error(string("popen: ") + strerror(errno));
 
         char buf[1000], *message, type, *data;
-        int mfileidx, mimporteridx, mreadable, curfileidx = -1, curimporteridx = -1;
+        int mfileidx, mimporteridx, mreadable, memptyscene, curfileidx = -1, curimporteridx = -1;
         string curmessage;
         bool intest = false, haderror = false;
         while (fgets(buf, sizeof(buf), p)) {
             message = trim(buf);
+            if (!*message)
+                continue;
+            //
+            if (strncmp(message, "!@#$ ", 5)) {
+#ifdef _WIN32
+                OutputDebugStringA(message);
+#endif
+                continue;
+            } else {
+                message += 5;
+            }
             type = message[0];
             data = (message[0] && message[1]) ? (message + 2) : nullptr;
+            //
+#if WHICH_TEST == TEST_IMPORT
+            if (type == 'E') type = 'e'; // for now, until implemented better
+            if (type == 'S' && !intest && data && sscanf(data, "%d", &mfileidx) == 1) {
+                curfileidx = mfileidx;
+                curimporteridx = -1;
+                curmessage = "";
+                intest = true;
+                haderror = false;
+                mreadable = false;
+                memptyscene = false;
+                if (curfileidx < 0 || curfileidx >= (int)testfiles.size())
+                    throw runtime_error("bad S index received");
+            } else if (type == 'F' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
+                if (mfileidx != curfileidx)
+                    throw runtime_error("bad F index received");
+                curimporteridx = mimporteridx;
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage);
+                intest = false;
+#else
             if (type == 's' && !intest && data && sscanf(data, "%d %d", &mfileidx, &mimporteridx) == 2) {
                 curfileidx = mfileidx;
                 curimporteridx = mimporteridx;
@@ -600,13 +741,15 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 intest = true;
                 haderror = false;
                 mreadable = false;
+                memptyscene = false;
                 if (curfileidx < 0 || curfileidx >= (int)testfiles.size() || curimporteridx < 0 || curimporteridx >= importers)
                     throw runtime_error("bad s index received");
-            } else if (type == 'f' && intest && data && sscanf(data, "%d %d %d", &mfileidx, &mimporteridx, &mreadable) == 3) {
+            } else if (type == 'f' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
                 if (mfileidx != curfileidx || mimporteridx != curimporteridx)
                     throw runtime_error("bad f index received");
-                setResult(results, curfileidx, curimporteridx, mreadable, haderror, false, curmessage);
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage);
                 intest = false;
+#endif
             } else if ((type == 'e' || type == 'x') && intest && data) {
                 curmessage = data;
                 haderror = true;
@@ -621,8 +764,11 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             throw runtime_error("unrecoverable: " + curmessage);
 
         if (intest)
-            setResult(results, curfileidx, curimporteridx, false, true, true, curmessage);
+            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage);
 
+#if WHICH_TEST == TEST_IMPORT
+        fileidx = curfileidx + 1;
+#else
         importeridx = curimporteridx + 1;
         if (importeridx >= importers) {
             fileidx = curfileidx + 1;
@@ -630,6 +776,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
         } else {
             fileidx = curfileidx;
         }
+#endif
 
     }
 

@@ -37,6 +37,9 @@ th.filename, td.filename {
 .canread {
     background: #0f0;
 }
+.canread.emptyscene {
+    background: #ff0;
+}
 .haderror {
     background: #fa0;
 }
@@ -44,7 +47,16 @@ th.filename, td.filename {
     background: #f00;
 }
 .untested {
+    background: #ccc;
+}
+tr.noimp .result {
     background: #888;
+}
+tr.u_canread {
+    background: #008;
+}
+tr.u_canread.u_emptyscene {
+    background: #088;
 }
 footer {
     padding-top: 4em;
