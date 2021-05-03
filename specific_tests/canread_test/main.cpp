@@ -24,6 +24,10 @@
 #    include <QCoreApplication>
 #  endif
 #endif
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
 #include <cstdio>
 #include <list>
 #include <string>
@@ -56,6 +60,8 @@
 #define VALIDATE_SCENES       1   // only relevant for TEST_IMPORT
 #define VERBOSE_PROGRESS      1
 #define FILTER_COFF_OBJ       1
+#define STRIP_FILE_EXTNS      0
+#define MOVE_FILES_AWAY       0
 
 // these are ignored if !HTML_OUTPUT
 #define FLOATING_HEADER       1
@@ -134,6 +140,37 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
 #endif
 
     for (int nfile = fileidx; nfile < (int)testfiles.size(); ++ nfile) {
+        path testfile = testfiles[nfile];
+#if STRIP_FILE_EXTNS
+        path strippedfile = testfile.parent_path() / "~canread_test_model";
+        if (filesystem::exists(strippedfile) && is_directory(strippedfile))
+            throw test_error("please clean up " + strippedfile.string());
+        try {
+            filesystem::remove(strippedfile);
+            filesystem::copy_file(testfile, strippedfile, filesystem::copy_options::overwrite_existing);
+            testfile = strippedfile;
+        } catch (const exception &x) {
+            //throw test_error(string(x.what()));
+            // oajdsflkjakjafdakj;fdlkajl;zz
+            //writeMessagef('e', x.what());
+            printf("[warn:strip] %s\n", x.what());
+            continue;
+        }
+#endif
+#if MOVE_FILES_AWAY
+        path movedfile = filesystem::temp_directory_path() / testfile.filename();
+        if (filesystem::exists(movedfile) && is_directory(movedfile))
+            throw test_error("please clean up " + movedfile.string());
+        try {
+            filesystem::remove(movedfile);
+            filesystem::copy_file(testfile, movedfile, filesystem::copy_options::overwrite_existing);
+            testfile = movedfile;
+        } catch (const exception &x) {
+            printf("[warn:move] %s\n", x.what());
+            continue;
+        }
+#endif
+        printf("[debug] %s\n", testfile.string().c_str());
 #if WHICH_TEST == TEST_IMPORT
         writeMessagef('S', "%d", nfile);
         bool readable = false;
@@ -141,9 +178,9 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
         Assimp::Importer importer;
         try {
 #  if VALIDATE_SCENES
-            readable = (importer.ReadFile(testfiles[nfile].string(), aiProcess_ValidateDataStructure) != nullptr);
+            readable = (importer.ReadFile(testfile.string(), aiProcess_ValidateDataStructure) != nullptr);
 #  else
-            readable = (importer.ReadFile(testfiles[nfile].string(), 0) != nullptr);
+            readable = (importer.ReadFile(testfile.string(), 0) != nullptr);
 #  endif
             if (!readable)
                 writeMessage('E', importer.GetErrorString());
@@ -167,11 +204,11 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
                 if (!loader)
                     throw runtime_error("no loader");
 #  if WHICH_TEST == TEST_CANREAD
-                readable = loader->CanRead(testfiles[nfile].string(), &io, false);
+                readable = loader->CanRead(testfile.string(), &io, false);
 #  elif WHICH_TEST == TEST_CANREAD_CHECKSIG
-                readable = loader->CanRead(testfiles[nfile].string(), &io, true);
+                readable = loader->CanRead(testfile.string(), &io, true);
 #  elif WHICH_TEST == TEST_READ
-                aiScene *scene = loader->ReadFile(&importer, testfiles[nfile].string(), &io);
+                aiScene *scene = loader->ReadFile(&importer, testfile.string(), &io);
                 readable = (scene != nullptr);
                 emptyscene = (scene && !scene->HasMeshes());
                 delete scene;
@@ -184,6 +221,12 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
             writeMessagef('f', "%d %d %d %d", nfile, nimp, (int)readable, (int)emptyscene);
         }
         importeridx = 0;
+#endif
+#if MOVE_FILES_AWAY
+        filesystem::remove(movedfile);
+#endif
+#if STRIP_FILE_EXTNS
+        filesystem::remove(strippedfile);
 #endif
     }
 
@@ -674,10 +717,6 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
 
 }
 
-
-#ifdef _WIN32
-extern "C" void __stdcall OutputDebugStringA (const char *);
-#endif
 
 static int runServer (const vector<path> &testfiles, const path &myself, const path &listfile, const path &basedir) {
 
