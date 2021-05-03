@@ -15,6 +15,8 @@
 #  include <QDomElement>
 #  include <QFile>
 #  include <QTextStream>
+#  include <QMimeDatabase>
+#  include <QResource>
 #  if PDF_OUTPUT
 #    include <QWebEnginePage>
 #    include <QApplication>
@@ -45,8 +47,13 @@
 
 #define CANREAD_CHECKSIG      true
 #define VERBOSE_PROGRESS      1
-#define FLOATING_HEADER       1  // for html output
 #define FILTER_COFF_OBJ       1
+
+// these are ignored if !HTML_OUTPUT
+#define FLOATING_HEADER       1
+#define EMBED_FONT            1
+#define EMBED_FONT_FILE       ":/font/report"  // if EMBED_FONT
+#define NOEMBED_FONT_FAMILY   "Bahnschrift Condensed"  // used whether embed_font or not.
 
 using namespace std;
 using path = filesystem::path;
@@ -95,6 +102,10 @@ static void writeMessagef (char kind, const char *format, ...) {
 struct test_error : public std::runtime_error {
     explicit test_error (const string &message) : std::runtime_error(message) { }
     test_error (const string &m1, const string &m2) : std::runtime_error(m1 + ": " + m2) { }
+#if HTML_OUTPUT
+    explicit test_error (const QString &message) : std::runtime_error(message.toStdString()) { }
+    test_error (const QString &m1, const QString &m2) : std::runtime_error((m1 + ": " + m2).toStdString()) { }
+#endif
 };
 
 
@@ -232,9 +243,18 @@ static QDomElement addChild (QDomNode addto, const QString &tag, const StringHac
 
 }
 
+static QDomElement addChildFromFile (QDomNode addto, const QString &tag, const QString &filename) {
+
+    QFile f(filename);
+    if (!f.open(QFile::ReadOnly | QFile::Text))
+        throw test_error(filename, f.errorString());
+    return addChild(addto, tag, QString::fromLatin1(f.readAll()));
+
+}
+
 static QDomElement htmlhack (QDomElement node) {
 
-    node.appendChild(node.ownerDocument().createComment(""));
+    node.appendChild(node.ownerDocument().createTextNode(""));
     return node;
 
 }
@@ -255,19 +275,20 @@ static void writePdfReport (const path &reportfile, const QDomDocument &html) {
 
     QObject::connect(&renderer, &QWebEnginePage::loadFinished, [&] (bool ok) {
         assert(ok);
-        printf("[pdf] html rendered, writing pdf...\n");
-        renderer.printToPdf(QString::fromStdString(reportfile.string()));
+        printf("    [pdf] html rendered, generating pdf...\n");
+        QPageLayout layout(QPageSize(QPageSize::A4), QPageLayout::Landscape, QMarginsF());
+        renderer.printToPdf(QString::fromStdString(reportfile.string()), layout);
     });
 
     QObject::connect(&renderer, &QWebEnginePage::pdfPrintingFinished, [&] (QString, bool ok) {
         if (!ok)
-            printf("[pdf] an error occurred.\n");
+            printf("    [pdf] an error occurred.\n");
         else
-            printf("[pdf] pdf written ok.\n");
+            printf("    [pdf] pdf written ok.\n");
         complete = true;
     });
 
-    printf("[pdf] rendering html...\n");
+    printf("    [pdf] rendering html...\n");
     renderer.setHtml(html.toString(-1));
 
     while (!complete) {
@@ -276,6 +297,54 @@ static void writePdfReport (const path &reportfile, const QDomDocument &html) {
 
 }
 #endif
+
+
+#if EMBED_FONT
+static QString embeddedFontCSS (const QString &fontfile, const QString &family) {
+
+    QMimeType mimetype = QMimeDatabase().mimeTypeForFile(fontfile);
+
+    QString data;
+    if (fontfile.startsWith(":")) {
+        printf("font from resource\n");
+        data = QString::fromLatin1(QResource(fontfile).uncompressedData().toBase64());
+    } else {
+        QFile f(fontfile);
+        if (!f.open(QFile::ReadOnly))
+            throw test_error(fontfile, f.errorString());
+        data = QString::fromLatin1(f.readAll().toBase64());
+    }
+
+    QString datauri = "data:" + mimetype.name() + ";base64," + data;
+
+    /*
+    QString format;
+    if (mimetype.name() == "font/ttf")
+        format = "truetype";
+    else if (mimetype.name() == "font/otf")
+        format = "opentype";
+    else if (mimetype.name() == "font/woff")
+        format = "woff";
+    else if (mimetype.name() == "font/woff2")
+        format = "woff2";
+    else if (mimetype.preferredSuffix() == "svg")
+        format = "svg";
+    else if (mimetype.preferredSuffix() == "eot")
+        format = "embedded-opentype";
+    if (format != "")
+        format = "format(\"" + format + "\")";
+    */
+
+    return "@font-face {\n"
+           "  font-family: \"" + family + "\";\n"
+           "  font-weight: 300 700;\n"
+           "  font-stretch: semi-condensed;\n"
+           "  src: url(\"" + datauri + "\");\n"
+           "}";
+
+}
+#endif
+
 
 static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
@@ -300,11 +369,14 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     removeForPdf += withAttribute(htmlhack(addChild(head, "script")), "src", "https://code.jquery.com/jquery-3.6.0.min.js");
     removeForPdf += withAttribute(htmlhack(addChild(head, "script")), "src", "https://code.jquery.com/ui/1.12.1/jquery-ui.min.js");
     removeForPdf += withAttribute(htmlhack(addChild(head, "script")), "src", "https://cdnjs.cloudflare.com/ajax/libs/floatthead/2.2.1/jquery.floatThead.min.js");
-    {
-        QFile f(":/html/js");
-        f.open(QFile::ReadOnly | QFile::Text);
-        removeForPdf += addChild(head, "script", QString::fromLatin1(f.readAll()));
-    }
+    removeForPdf += addChildFromFile(head, "script", ":/js/report");
+#endif
+
+#if EMBED_FONT
+    addChild(head, "style", embeddedFontCSS(EMBED_FONT_FILE, "ReportFont")).setAttribute("type", "text/css");
+    addChild(head, "style", ":root{font-family:'" NOEMBED_FONT_FAMILY "','ReportFont',sans-serif;}").setAttribute("type", "text/css");
+#else
+    addChild(head, "style", ":root{font-family:'" NOEMBED_FONT_FAMILY "',sans-serif;}").setAttribute("type", "text/css");
 #endif
 
 #if 0
@@ -312,11 +384,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     csslink.setAttribute("rel", "stylesheet");
     csslink.setAttribute("href", "report.css");
 #else
-    {
-        QFile fstylesheet(":/html/css");
-        fstylesheet.open(QFile::ReadOnly | QFile::Text);
-        addChild(head, "style", QString::fromLatin1(fstylesheet.readAll())).setAttribute("type", "text/css");
-    }
+    addChildFromFile(head, "style", ":/css/report").setAttribute("type", "text/css");
 #endif
 
     QDomElement table = addChild(addChild(main, "article"), "table");

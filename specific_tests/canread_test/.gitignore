@@ -2,4 +2,5 @@
 /report*.csv
 /report*.html
 /report*.pdf
+/report-*/
 /check.html

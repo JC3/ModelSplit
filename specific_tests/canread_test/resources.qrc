@@ -1,6 +1,11 @@
 <RCC>
-    <qresource prefix="/html">
-        <file alias="css">report.css</file>
-        <file alias="js">report.js</file>
+    <qresource prefix="/css">
+        <file alias="report">report.css</file>
+    </qresource>
+    <qresource prefix="/js">
+        <file alias="report">report.js</file>
+    </qresource>
+    <qresource prefix="/font">
+        <file alias="report">bahnschrift.ttf</file>
     </qresource>
 </RCC>
