@@ -4,3 +4,4 @@
 /report*.pdf
 /report-*/
 /check.html
+*_qmlcache.qrc
