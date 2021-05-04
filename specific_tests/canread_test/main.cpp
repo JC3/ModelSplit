@@ -1,15 +1,21 @@
 // warning: this code is a mess.
 // note to self: you'll never remember how this works.
 
+// Qt dependency will be removed if both HTML_OUTPUT and XML_OUTPUT are 0.
+
 #ifndef HTML_OUTPUT
-#  define HTML_OUTPUT 1 // zero disables and also removes qt dependency
+#  define HTML_OUTPUT 1 // zero disables
+#endif
+
+#ifndef XML_OUTPUT
+#  define XML_OUTPUT 1 // zero disables
 #endif
 
 #ifndef PDF_OUTPUT
 #  define PDF_OUTPUT 1 // zero disables; requires HTML_OUTPUT
 #endif
 
-#if HTML_OUTPUT
+#if HTML_OUTPUT || XML_OUTPUT
 #  include <QDomDocument>
 #  include <QDomNode>
 #  include <QDomElement>
@@ -17,7 +23,8 @@
 #  include <QTextStream>
 #  include <QMimeDatabase>
 #  include <QResource>
-#  if PDF_OUTPUT
+#  include <QDateTime>
+#  if PDF_OUTPUT && HTML_OUTPUT
 #    include <QWebEnginePage>
 #    include <QApplication>
 #  else
@@ -42,9 +49,10 @@
 #include <assimp/DefaultIOSystem.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/DefaultLogger.hpp>
 
 #ifdef _WIN32
-#  define popen _popen
+#  define popen  _popen
 #  define pclose _pclose
 #  define dup2   _dup2
 #endif
@@ -61,6 +69,7 @@
 #define WHICH_TEST            TEST_CANREAD_CHECKSIG
 #define VALIDATE_SCENES       1   // only relevant for TEST_IMPORT
 #define VERBOSE_PROGRESS      1
+#define DUMP_LOGS_FROM_ASS    0
 #define FILTER_COFF_OBJ       1
 #define STRIP_FILE_EXTNS      0
 #define MOVE_FILES_AWAY       0
@@ -329,7 +338,7 @@ void ModelResult::queryImporters () {
 }
 
 
-#if HTML_OUTPUT
+#if HTML_OUTPUT || XML_OUTPUT
 
 static QDomElement addChild (QDomNode addto, const QString &tag) {
 
@@ -354,6 +363,10 @@ static QDomElement addChild (QDomNode addto, const QString &tag, const StringHac
     return node;
 
 }
+
+#endif
+
+#if HTML_OUTPUT
 
 static QDomElement addChildFromFile (QDomNode addto, const QString &tag, const QString &filename) {
 
@@ -654,6 +667,164 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
 #endif
 
 
+#if XML_OUTPUT
+
+static QDomElement addXmlConfig (QDomElement config, QString key, QVariant value) {
+    QDomElement prop = addChild(config, "var");
+    prop.setAttribute("name", key);
+    prop.setAttribute("value", value.toString());
+    return prop;
+}
+
+
+template <typename Container>
+static QString setstr (const Container &values, char delim = ' ') {
+    QStringList strs;
+    for (auto v : values)
+        strs.append(QString("%1").arg(v));
+    return strs.join(delim);
+}
+
+
+#define XML_REDUCE_SIZE 1
+
+static void addXmlResult (QDomElement addto, const Result &result, int importer) {
+
+    if (!result.tested)
+        return;
+
+    QDomElement e = addChild(addto, "importer");
+    e.setAttribute("id", importer);
+    if (result.canread) e.setAttribute("canread", true);
+    if (result.emptyscene) e.setAttribute("emptyscene", true);
+    if (result.haderror) e.setAttribute("haderror", true);
+    if (result.crashed) e.setAttribute("crashed", true);
+
+    if (!result.message.empty())
+        addChild(e, "message", result.message);
+
+    if (result.miscoutput || result.miscmessages.size() > 1) {
+        QDomElement emm = addChild(e, "miscmessages");
+        if (result.miscoutput) emm.setAttribute("std", true);
+        for (const string &message : result.miscmessages)
+            addChild(emm, "message", message);
+    }
+
+#if XML_REDUCE_SIZE
+    if (!e.hasChildNodes() && e.attributes().size() == 1 /* id */)
+        addto.removeChild(e);
+#endif
+
+}
+
+
+static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers,
+                            const vector<path> &testfiles, const path &listfile, const path &basedir)
+{
+
+    printf("writing %s (xml)...\n", reportfile.string().c_str());
+
+    QDomDocument doc;
+    doc.appendChild(doc.createProcessingInstruction("xml", "version=\"1.0\" encoding=\"utf-8\""));
+
+    QDomElement root = addChild(doc, "canread_test_report");
+    root.setAttribute("version", 1);
+
+    QDomElement meta = addChild(root, "meta");
+    meta.setAttribute("timestamp", QDateTime::currentMSecsSinceEpoch());
+    meta.appendChild(doc.createComment(QDateTime::currentDateTime().toString()));
+
+    QDomElement config = addChild(meta, "config");
+    addXmlConfig(config, "WHICH_TEST", WHICH_TEST);
+    addXmlConfig(config, "VALIDATE_SCENES", VALIDATE_SCENES);
+    addXmlConfig(config, "DUMP_LOGS_FROM_ASS", DUMP_LOGS_FROM_ASS);
+    addXmlConfig(config, "FILTER_COFF_OBJ", FILTER_COFF_OBJ);
+    addXmlConfig(config, "STRIP_FILE_EXTNS", STRIP_FILE_EXTNS);
+    addXmlConfig(config, "MOVE_FILES_AWAY", MOVE_FILES_AWAY);
+
+    QDomElement assimp = addChild(meta, "assimp");
+    addChild(assimp, "version", QString().sprintf("%d.%d.%d", aiGetVersionMajor(), aiGetVersionMinor(), aiGetVersionPatch()));
+    addChild(assimp, "branch", aiGetBranchName());
+    addChild(assimp, "commit", QString("%1").arg(aiGetVersionRevision(), 0, 16));
+    addChild(assimp, "flags", QString("%1").arg(aiGetCompileFlags()));
+
+    QDomElement imps = addChild(assimp, "importers");
+    {
+        Assimp::Importer ai;
+        for (int k = 0; k < importers; ++ k) {
+            auto info = ai.GetImporterInfo(k);
+            QDomElement imp = addChild(imps, "importer", QString(info->mName).replace("\n", " "));
+            imp.setAttribute("id", k);
+            imp.setAttribute("exts", info->mFileExtensions);
+        }
+    }
+
+    QDomElement files = addChild(root, "files");
+    files.setAttribute("list", filesystem::relative(listfile, basedir).generic_string().c_str());
+    files.setAttribute("base", filesystem::relative(basedir).generic_string().c_str());
+    for (int k = 0; k < (int)testfiles.size(); ++ k) {
+        addChild(files, "file", filesystem::relative(testfiles[k], basedir).generic_string())
+                .setAttribute("id", k);
+    }
+
+    QDomElement eresults = addChild(root, "results");
+    eresults.setAttribute("compressed", XML_REDUCE_SIZE);
+
+    QDomElement defaultrefs = addChild(eresults, "defaults");
+    defaultrefs.appendChild(doc.createComment("Really, this just serves as a reference for the Result fields, in case they change, since it wouldn't otherwise be apparent here."));
+    QDomElement defaultref = addChild(defaultrefs, "default");
+    defaultref.setAttribute("for", "model/importers/importer");
+    addChild(defaultref, "attr", "0").setAttribute("name", "canread");
+    addChild(defaultref, "attr", "0").setAttribute("name", "emptyscene");
+    addChild(defaultref, "attr", "0").setAttribute("name", "haderror");
+    addChild(defaultref, "attr", "0").setAttribute("name", "crashed");
+
+    for (int k = 0; k < (int)results.size(); ++ k) {
+        const ModelResultPtr &mr = results[k];
+        QDomElement emr = addChild(eresults, "model");
+        emr.setAttribute("file", k);
+        QDomElement eimps = addChild(emr, "importers");
+        eimps.setAttribute("all", setstr(mr->importersForExtension));
+        if (mr->primaryImporter.has_value())
+            eimps.setAttribute("default", mr->primaryImporter.value());
+#if XML_REDUCE_SIZE
+        {
+            vector<int> tested, untested;
+            for (int j = 0; j < (int)mr->results.size(); ++ j)
+                (mr->results[j].tested ? tested : untested).push_back(j);
+            if (tested.size() >= untested.size())
+                addChild(eimps, "tested").setAttribute("ids", setstr(tested));
+            else
+                addChild(eimps, "untested").setAttribute("ids", setstr(untested));
+        }
+#endif
+#if WHICH_TEST == TEST_IMPORT
+        if (mr->usedImporter.has_value())
+            eimps.setAttribute("actual", mr->usedImporter.value());
+        else
+            addXmlResult(eimps, mr->usedResult, -1);
+#endif
+        for (int j = 0; j < (int)mr->results.size(); ++ j)
+            addXmlResult(eimps, mr->results[j], j);
+    }
+
+    {
+        QFile out(reportfile.string().c_str());
+        if (!out.open(QFile::WriteOnly | QFile::Text))
+            throw runtime_error(out.errorString().toStdString());
+        else {
+            QTextStream outs(&out);
+            outs.setCodec("utf-8");
+            doc.save(outs, 1);
+            out.close();
+        }
+    }
+
+}
+
+#endif
+
+
 static void writeReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
     printf("writing %s (csv)...\n", reportfile.string().c_str());
@@ -897,8 +1068,11 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
         printf("warning: unexpected return code %d (0x%x)\n", lastretcode, lastretcode);
 
     writeReport(filesystem::absolute("report.csv"), results, importers);
+#if XML_OUTPUT
+    writeXmlReport(filesystem::absolute("report.xml"), results, importers, testfiles, listfile, basedir);
+#endif
 #if HTML_OUTPUT
-    writeHtmlReport(filesystem::absolute("report.html"), results, importers);
+    writeHtmlReport(filesystem::absolute("report.html"), results, importers); // also writes pdf
 #endif
 
     return EXIT_SUCCESS;
@@ -932,8 +1106,8 @@ static bool objLooksLikeCOFF (const path &thefile) {
 
 int main (int argc, char **argv) {
 
-#if HTML_OUTPUT
-#  if PDF_OUTPUT
+#if HTML_OUTPUT || XML_OUTPUT
+#  if PDF_OUTPUT && HTML_OUTPUT
     QApplication app(argc, argv);
 #  else
     QCoreApplication app(argc, argv);
@@ -964,6 +1138,8 @@ int main (int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    // -------- output tweaks ------------------------------------------------
+
     if (runner) {
 #if _WIN32
         if (!IsDebuggerPresent()) {
@@ -973,8 +1149,12 @@ int main (int argc, char **argv) {
             _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDOUT);
         }
 #endif
-        _dup2(1, 2);
+        dup2(1, 2); // stderr -> stdout, since we're just using popen()
     }
+
+#if DUMP_LOGS_FROM_ASS
+    Assimp::DefaultLogger::create("", Assimp::DefaultLogger::VERBOSE, aiDefaultLogStream_STDERR);
+#endif
 
     // -------- file list ----------------------------------------------------
 

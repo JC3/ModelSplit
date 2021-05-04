@@ -2,6 +2,7 @@
 /report*.csv
 /report*.html
 /report*.pdf
+/report*.xml
 /report-*/
 /check.html
 *_qmlcache.qrc
