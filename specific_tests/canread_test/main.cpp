@@ -27,6 +27,7 @@
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
+#  include <io.h>
 #endif
 #include <cstdio>
 #include <list>
@@ -45,6 +46,7 @@
 #ifdef _WIN32
 #  define popen _popen
 #  define pclose _pclose
+#  define dup2   _dup2
 #endif
 
 #define EXIT_STD_EXCEPTION    80
@@ -83,9 +85,9 @@ using path = filesystem::path;
 static char * trim (char *str) {
 
     if (str) {
-        while (*str && isspace(*str))
+        while (*str && isspace((unsigned char)*str))
             ++ str;
-        for (int n = (int)strlen(str) - 1; n >= 0 && isspace(str[n]); -- n)
+        for (int n = (int)strlen(str) - 1; n >= 0 && isspace((unsigned char)str[n]); -- n)
             str[n] = 0;
     }
 
@@ -130,7 +132,7 @@ struct test_error : public std::runtime_error {
 };
 
 
-static int runClient (const vector<path> &testfiles, int fileidx, int importeridx) {
+static int runClient (const vector<path> &testfiles, const path &myself, int fileidx, int importeridx) {
 
 #if WHICH_TEST != TEST_IMPORT
     Assimp::DefaultIOSystem io;
@@ -170,7 +172,7 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
             continue;
         }
 #endif
-        printf("[debug] %s\n", testfile.string().c_str());
+        //printf("[debug] %s\n", testfile.string().c_str());
 #if WHICH_TEST == TEST_IMPORT
         writeMessagef('S', "%d", nfile);
         bool readable = false;
@@ -209,6 +211,11 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
                 readable = loader->CanRead(testfile.string(), &io, true);
 #  elif WHICH_TEST == TEST_READ
                 aiScene *scene = loader->ReadFile(&importer, testfile.string(), &io);
+                if (!scene) {
+                    writeMessagef('e', "[ReadFile] %s", loader->GetErrorText().c_str());
+                    // what a mess...
+                    //printf("[ReadFile] %s\n", loader->GetErrorText().c_str());
+                }
                 readable = (scene != nullptr);
                 emptyscene = (scene && !scene->HasMeshes());
                 delete scene;
@@ -228,6 +235,8 @@ static int runClient (const vector<path> &testfiles, int fileidx, int importerid
 #if STRIP_FILE_EXTNS
         filesystem::remove(strippedfile);
 #endif
+        if (filesystem::exists(myself.parent_path() / "STOP"))
+            break;
     }
 
     return EXIT_SUCCESS;
@@ -251,7 +260,9 @@ struct Result {
     bool haderror;
     bool crashed;
     string message;
-    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false) { }
+    vector<string> miscmessages;
+    bool miscoutput;
+    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), miscoutput(false) { }
 };
 
 struct ModelResult {
@@ -261,17 +272,9 @@ struct ModelResult {
     optional<int> primaryImporter;
 #if WHICH_TEST == TEST_IMPORT
     optional<int> usedImporter;
-    string usedMessage;
-    bool usedEmptyScene;
-    bool usedReadable;
+    Result usedResult; // even if !usedImporter.hasValue
 #endif
-    ModelResult (const path &modelfile, int importers) :  modelfile(modelfile), results(importers) {
-#if WHICH_TEST == TEST_IMPORT
-        usedEmptyScene = false;
-        usedReadable = false;
-#endif
-        queryImporters();
-    }
+    ModelResult (const path &modelfile, int importers) :  modelfile(modelfile), results(importers) { queryImporters(); }
 private:
     void queryImporters ();
 };
@@ -357,7 +360,7 @@ static QDomElement addChildFromFile (QDomNode addto, const QString &tag, const Q
     QFile f(filename);
     if (!f.open(QFile::ReadOnly | QFile::Text))
         throw test_error(filename, f.errorString());
-    return addChild(addto, tag, QString::fromLatin1(f.readAll()));
+    return addChild(addto, tag, QString::fromUtf8(f.readAll()));
 
 }
 
@@ -454,6 +457,37 @@ static QString embeddedFontCSS (const QString &fontfile, const QString &family) 
 #endif
 
 
+template <typename Container>
+static string join (const Container &str_, const string &delim, bool removedupes = true) {
+#if 1
+    Container str;
+    if (removedupes) {
+        set<string> seen;
+        for (string s : str_) {
+            if (seen.find(s) == seen.end()) {
+                seen.insert(s);
+                str.push_back(s);
+            }
+        }
+    } else {
+        str = str_;
+    }
+#else
+    const Container &str = str_;
+#endif
+    //
+    string joined;
+    auto iter = str.begin();
+    if (iter != str.end())
+        joined = *(iter ++);
+    while (iter != str.end()) {
+        joined += delim;
+        joined += *(iter ++);
+    }
+    return joined;
+};
+
+
 static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
     printf("writing %s (html)...\n", reportfile.string().c_str());
@@ -463,15 +497,20 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
 
 #if WHICH_TEST == TEST_CANREAD
     static const char PAGE_TITLE[] = "CanRead(false) Report";
+    static const char TEST_CLASSES[] = "test-canread";
 #elif WHICH_TEST == TEST_CANREAD_CHECKSIG
     static const char PAGE_TITLE[] = "CanRead(true) Report";
+    static const char TEST_CLASSES[] = "test-canread test-checksig";
 #elif WHICH_TEST == TEST_READ
     static const char PAGE_TITLE[] = "BaseImporter::Read Report";
+    static const char TEST_CLASSES[] = "test-read";
 #elif WHICH_TEST == TEST_IMPORT
 #  if VALIDATE_SCENES
     static const char PAGE_TITLE[] = "Importer::Read+Validate Report";
+    static const char TEST_CLASSES[] = "test-import test-validate";
 #  else
     static const char PAGE_TITLE[] = "Importer::Read Report";
+    static const char TEST_CLASSES[] = "test-import";
 #  endif
 #endif
 
@@ -479,6 +518,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     QDomElement html = addChild(doc, "html");
     html.setAttribute("lang", "en");
     QDomElement head = addChild(html, "head");
+    addChild(head, "meta").setAttribute("charset", "utf-8");
     addChild(head, "title", PAGE_TITLE);
     QDomElement body = addChild(html, "body");
     QDomElement main = addChild(body, "main");
@@ -509,7 +549,9 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     addChildFromFile(head, "style", ":/css/report").setAttribute("type", "text/css");
 #endif
 
-    QDomElement table = addChild(addChild(main, "article"), "table");
+    QDomElement article = addChild(main, "article");
+    article.setAttribute("class", TEST_CLASSES);
+    QDomElement table = addChild(article, "table");
     table.setAttribute("id", "report");
     QDomElement thead = addChild(table, "thead");
     QDomElement tbody = addChild(table, "tbody");
@@ -518,7 +560,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     addChild(header, "th", "Extn").setAttribute("class", "extn");
     for (int k = 0; k < importers; ++ k) {
         QString label = imp.GetImporterInfo(k)->mFileExtensions;
-        addChild(addChild(header, "th"), "div", label).setAttribute("title", label);
+        addChild(addChild(header, "th"), "div", label).setAttribute("title", label + " - " + imp.GetImporterInfo(k)->mName);
     }
     addChild(header, "th", "Model File").setAttribute("class", "filename");
 
@@ -527,12 +569,13 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
 #if WHICH_TEST == TEST_IMPORT
         if (!result->usedImporter.has_value()) {
             row.setAttribute("class", "noimp");
-            if (result->usedEmptyScene)
+            if (result->usedResult.emptyscene)
                 row.setAttribute("class", row.attribute("class") + " u_emptyscene");
-            if (result->usedReadable)
+            if (result->usedResult.canread)
                 row.setAttribute("class", row.attribute("class") + " u_canread");
-            if (!result->usedMessage.empty())
-                row.setAttribute("title", QString::fromStdString(result->usedMessage));
+            string tooltip = join(result->usedResult.miscmessages, "\n");
+            if (!tooltip.empty())
+                row.setAttribute("title", QString::fromStdString(tooltip));
         }
 #endif
         addChild(row, "td", result->modelfile.extension().string()).setAttribute("class", "extn");
@@ -558,11 +601,18 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                 classes.append("imp");
             if (result->primaryImporter == k)
                 classes.append("pimp");
+            //
             QDomElement td = addChild(row, "td");
+            string tooltip = join(res.miscmessages, "\n");
+            if (!tooltip.empty())
+                td.setAttribute("title", QString::fromStdString(tooltip));
+            if (!res.message.empty())
+                classes.append("message");
+            if (res.miscoutput)
+                classes.append("miscmessage");
+            //
             if (!classes.empty())
                 td.setAttribute("class", classes.join(' '));
-            if (!res.message.empty())
-                td.setAttribute("title", QString::fromStdString(res.message));
         }
         addChild(row, "td", filesystem::relative(result->modelfile).string()).setAttribute("class", "filename");
     }
@@ -573,7 +623,10 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                                            aiGetVersionPatch(),
                                            aiGetBranchName(),
                                            aiGetVersionRevision());
-    addChild(addChild(body, "footer"), "div", versionstr);
+    QDomElement footer = addChild(body, "footer");
+    addChild(footer, "div", PAGE_TITLE);
+    addChild(footer, "div", versionstr);
+    addChild(footer, "div", QDateTime::currentDateTimeUtc().toString());
 
     {
         QFile out(reportfile.string().c_str());
@@ -581,6 +634,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
             throw runtime_error(out.errorString().toStdString());
         else {
             QTextStream outs(&out);
+            outs.setCodec("utf-8");
             doc.save(outs, 1);
             out.close();
         }
@@ -660,33 +714,35 @@ static string rclip (string str, int maxwidth) {
 
 static void setResult (vector<ModelResultPtr> &results, int fileidx, int importeridx,
                        bool readable, bool emptyscene, bool haderror, bool crashed,
-                       const string &message)
+                       const string &message, const vector<string> &miscmessages,
+                       bool miscoutput)
 {
 
     if (fileidx < 0 || fileidx >= (int)results.size())
         throw runtime_error("setResult: bad file index");
     ModelResultPtr modelresult = results[fileidx];
 
+    Result result;
+    result.tested = true;
+    result.canread = readable;
+    result.emptyscene = emptyscene;
+    result.haderror = haderror;
+    result.crashed = crashed;
+    result.message = message;
+    result.miscmessages = miscmessages;
+    result.miscoutput = miscoutput;
+
 #if WHICH_TEST == TEST_IMPORT
-    modelresult->usedMessage = message;
-    modelresult->usedEmptyScene = emptyscene;
-    modelresult->usedReadable = readable;
+    modelresult->usedResult = result;
     if (importeridx != -1) {
         modelresult->usedImporter = importeridx;
 #endif
         if (importeridx < 0 || importeridx >= (int)modelresult->results.size())
             throw runtime_error("setResult: bad importer index");
-        Result &result = modelresult->results[importeridx];
-
-        if (result.tested)
+        else if (modelresult->results[importeridx].tested)
             throw runtime_error("setResult: test already performed");
-
-        result.tested = true;
-        result.canread = readable;
-        result.emptyscene = emptyscene;
-        result.haderror = haderror;
-        result.crashed = crashed;
-        result.message = message;
+        else
+            modelresult->results[importeridx] = result;
 #if WHICH_TEST == TEST_IMPORT
     } else {
         modelresult->usedImporter.reset();
@@ -737,7 +793,8 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
         char buf[1000], *message, type, *data;
         int mfileidx, mimporteridx, mreadable, memptyscene, curfileidx = -1, curimporteridx = -1;
         string curmessage;
-        bool intest = false, haderror = false;
+        vector<string> miscmessages;
+        bool intest = false, haderror = false, hadmisc = false;
         while (fgets(buf, sizeof(buf), p)) {
             message = trim(buf);
             if (!*message)
@@ -747,6 +804,8 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
 #ifdef _WIN32
                 OutputDebugStringA(message);
 #endif
+                miscmessages.push_back(message);
+                hadmisc = true;
                 continue;
             } else {
                 message += 5;
@@ -764,13 +823,15 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 haderror = false;
                 mreadable = false;
                 memptyscene = false;
+                miscmessages.clear();
+                hadmisc = false;
                 if (curfileidx < 0 || curfileidx >= (int)testfiles.size())
                     throw runtime_error("bad S index received");
             } else if (type == 'F' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
                 if (mfileidx != curfileidx)
                     throw runtime_error("bad F index received");
                 curimporteridx = mimporteridx;
-                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage);
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc);
                 intest = false;
 #else
             if (type == 's' && !intest && data && sscanf(data, "%d %d", &mfileidx, &mimporteridx) == 2) {
@@ -781,16 +842,19 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 haderror = false;
                 mreadable = false;
                 memptyscene = false;
+                miscmessages.clear();
+                hadmisc = false;
                 if (curfileidx < 0 || curfileidx >= (int)testfiles.size() || curimporteridx < 0 || curimporteridx >= importers)
                     throw runtime_error("bad s index received");
             } else if (type == 'f' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
                 if (mfileidx != curfileidx || mimporteridx != curimporteridx)
                     throw runtime_error("bad f index received");
-                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage);
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc);
                 intest = false;
 #endif
             } else if ((type == 'e' || type == 'x') && intest && data) {
                 curmessage = data;
+                miscmessages.push_back(message /* yes, including type */);
                 haderror = true;
             } else {
                 fprintf(stderr, "weird message: %s\n", message);
@@ -803,7 +867,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             throw runtime_error("unrecoverable: " + curmessage);
 
         if (intest)
-            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage);
+            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage, miscmessages, hadmisc);
 
 #if WHICH_TEST == TEST_IMPORT
         fileidx = curfileidx + 1;
@@ -816,6 +880,12 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             fileidx = curfileidx;
         }
 #endif
+
+        if (filesystem::exists(myself.parent_path() / "STOP")) {
+            printf("STOPPED\n");
+            filesystem::remove(myself.parent_path() / "STOP");
+            break;
+        }
 
     }
 
@@ -894,6 +964,18 @@ int main (int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    if (runner) {
+#if _WIN32
+        if (!IsDebuggerPresent()) {
+            _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDOUT);
+            _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDOUT);
+        }
+#endif
+        _dup2(1, 2);
+    }
+
     // -------- file list ----------------------------------------------------
 
     vector<path> testfiles;
@@ -928,10 +1010,12 @@ int main (int argc, char **argv) {
 
     // -------- run ----------------------------------------------------------
 
+    filesystem::remove(myself.parent_path() / "STOP");
+
     int result = EXIT_FAILURE;
     if (runner) {
         try {
-            result = runClient(testfiles, fileidx, importeridx);
+            result = runClient(testfiles, myself, fileidx, importeridx);
         } catch (const test_error &te) {
             writeMessage('x', te.what());
             result = EXIT_TEST_ERROR;

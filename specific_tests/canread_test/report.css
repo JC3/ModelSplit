@@ -1,3 +1,4 @@
+@charset "utf-8";
 th {
     text-align: left;
     vertical-align: bottom;
@@ -13,6 +14,19 @@ th div {
 }
 td.result {
     border: 1px solid #888;
+    text-align: center;
+    vertical-align: middle;
+    padding: 0;
+    margin: 0;
+}
+td.miscmessage.result[title]::before {
+    content: '●';
+}
+td.message.result[title]::before {
+    content: '○';
+}
+td.miscmessage.message.result[title]::before {
+    content: '🞉' !important;
 }
 td.imp {
     border: 2px solid #444;
@@ -48,6 +62,9 @@ th.filename, td.filename {
 }
 .untested {
     background: #ccc;
+}
+.test-read .haderror:not(.imp,.pimp) {
+    background: unset;
 }
 tr.noimp .result {
     background: #888;
