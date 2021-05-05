@@ -79,7 +79,8 @@ tr.u_canread.u_emptyscene {
     background: #088;
 }
 footer {
-    padding-top: 4em;
+    padding-top: 2em;
+    padding-left: 4em;
 }
 thead {
     background: white;

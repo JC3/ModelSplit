@@ -79,6 +79,7 @@
 #define EMBED_FONT            1
 #define EMBED_FONT_FILE       ":/font/report"  // if EMBED_FONT
 #define NOEMBED_FONT_FAMILY   "Bahnschrift Condensed"  // used whether embed_font or not.
+#define LIST_MESSAGES         0
 
 using namespace std;
 using path = filesystem::path;
@@ -268,11 +269,12 @@ struct Result {
     bool emptyscene;
     bool haderror;
     bool crashed;
+    int crashedret;
     string message;
     vector<string> miscmessages;
     bool miscoutput;
     bool badchars;
-    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), miscoutput(false), badchars(false) { }
+    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), crashedret(0), miscoutput(false), badchars(false) { }
 };
 
 struct ModelResult {
@@ -504,7 +506,7 @@ static string join (const Container &str_, const string &delim, bool removedupes
         joined += *(iter ++);
     }
     return joined;
-};
+}
 
 static QString htmlPreEscape (const StringHack &str_) {
 
@@ -516,6 +518,57 @@ static QString htmlPreEscape (const StringHack &str_) {
     return str;
 
 }
+
+
+#if LIST_MESSAGES
+template <typename V> class OrderedSet {
+private:
+    using set_iter = typename set<V>::iterator;
+    using list_iter = typename list<set_iter>::iterator;
+public:
+    struct iterator {
+    public:
+        const V & operator * () { return **li_; }
+        const V * operator -> () { return (*li_).operator -> (); }
+        bool operator == (const iterator &rhs) const { return li_ == rhs.li_; }
+        bool operator != (const iterator &rhs) const { return li_ != rhs.li_; }
+        iterator & operator ++ () { ++ li_; return *this; }
+        iterator operator ++ (int) { return iterator(li_ ++); }
+    private:
+        iterator (list_iter li) : li_(li) { }
+        list_iter li_;
+        friend class OrderedSet<V>;
+    };
+    bool insert (const V &v) {
+        auto i = set_.insert(v);
+        if (i.second) list_.push_back(i.first);
+        return i.second;
+    }
+    bool insert_if (const V &v, bool cond) { return cond ? insert(v) : false; }
+    iterator begin () { return iterator(list_.begin()); }
+    iterator end () { return iterator(list_.end()); }
+    size_t size () const { return list_.size(); }
+private:
+    set<V> set_;
+    list<set_iter> list_;
+};
+
+
+static bool shouldIgnore (const string &msg) {
+
+    if (msg.empty())
+        return true;
+    if (msg.find("e [ReadFile]") == 0)
+        return true;
+    if (msg.find("[ReadFile]") != string::npos)
+        return msg.find("C:\\") != string::npos || msg.find("c:\\") != string::npos;
+
+    return false;
+
+}
+
+#endif
+
 
 static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
@@ -541,6 +594,20 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     static const char PAGE_TITLE[] = "Importer::Read Report";
     static const char TEST_CLASSES[] = "test-import";
 #  endif
+#endif
+
+#if LIST_MESSAGES
+    OrderedSet<string> messagelist;
+    int totalmessages = 0;
+    for (ModelResultPtr m : results) {
+        for (const Result &r : m->results) {
+            messagelist.insert_if(r.message, !shouldIgnore(r.message));
+            for (const string &s : r.miscmessages)
+                messagelist.insert_if(s, !shouldIgnore(s));
+            totalmessages += (int)r.miscmessages.size();
+        }
+    }
+    printf("[html] %d unique messages, %d total\n", (int)messagelist.size(), totalmessages);
 #endif
 
     QDomDocument doc("html");
@@ -585,6 +652,16 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     QDomElement thead = addChild(table, "thead");
     QDomElement tbody = addChild(table, "tbody");
     QDomElement header = addChild(thead, "tr");
+
+#if LIST_MESSAGES
+    {
+        QDomElement div = addChild(article, "div");
+        div.setAttribute("id", "messages");
+        QDomElement mlist = addChild(div, "ul");
+        for (string m : messagelist)
+            addChild(mlist, "li", htmlPreEscape(m));
+    }
+#endif
 
     addChild(header, "th", "Extn").setAttribute("class", "extn");
     for (int k = 0; k < importers; ++ k) {
@@ -641,6 +718,8 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                 classes.append("message");
             if (res.miscoutput)
                 classes.append("miscmessage");
+            if (res.crashed)
+                td.setAttribute("data-crashedret", res.crashedret);
             //
             if (!classes.empty())
                 td.setAttribute("class", classes.join(' '));
@@ -648,7 +727,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
         try {
             addChild(row, "td", filesystem::relative(result->modelfile).string()).setAttribute("class", "filename");
         } catch (const std::exception &ex) {
-            auto e = addChild(row, "td", result->modelfile.string());
+            auto e = addChild(row, "td", result->modelfile.filename().string());
             e.setAttribute("class", "filename rel-path-failed");
             e.setAttribute("title", htmlPreEscape(ex.what()));
         }
@@ -744,6 +823,7 @@ static void addXmlResult (QDomElement addto, const Result &result, int importer)
     if (result.emptyscene) e.setAttribute("emptyscene", true);
     if (result.haderror) e.setAttribute("haderror", true);
     if (result.crashed) e.setAttribute("crashed", true);
+    if (result.crashed) e.setAttribute("crashedret", QString().sprintf("0x%08x", result.crashedret));
     if (result.badchars) e.setAttribute("badchars", true);
 
     if (!result.message.empty())
@@ -793,6 +873,7 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
     addChild(assimp, "version", QString().sprintf("%d.%d.%d", aiGetVersionMajor(), aiGetVersionMinor(), aiGetVersionPatch()));
     addChild(assimp, "branch", aiGetBranchName());
     addChild(assimp, "commit", QString("%1").arg(aiGetVersionRevision(), 0, 16));
+    assimp.appendChild(doc.createComment("flags value is base 10:"));
     addChild(assimp, "flags", QString("%1").arg(aiGetCompileFlags()));
 
     QDomElement imps = addChild(assimp, "importers");
@@ -831,6 +912,7 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
     addChild(defaultref, "attr", "0").setAttribute("name", "emptyscene");
     addChild(defaultref, "attr", "0").setAttribute("name", "haderror");
     addChild(defaultref, "attr", "0").setAttribute("name", "crashed");
+    addChild(defaultref, "attr", "unset").setAttribute("name", "crashedret");
     addChild(defaultref, "attr", "0").setAttribute("name", "badchars");
 
     for (int k = 0; k < (int)results.size(); ++ k) {
@@ -961,7 +1043,7 @@ static bool hasUnprintableChars (const Container &strs) {
 static void setResult (vector<ModelResultPtr> &results, int fileidx, int importeridx,
                        bool readable, bool emptyscene, bool haderror, bool crashed,
                        const string &message, const vector<string> &miscmessages,
-                       bool miscoutput)
+                       bool miscoutput, int crashedRetCode)
 {
 
     if (fileidx < 0 || fileidx >= (int)results.size())
@@ -974,6 +1056,7 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
     result.emptyscene = emptyscene;
     result.haderror = haderror;
     result.crashed = crashed;
+    result.crashedret = crashedRetCode;
     result.message = message;
     result.miscmessages = miscmessages;
     result.miscoutput = miscoutput;
@@ -1081,7 +1164,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 if (mfileidx != curfileidx)
                     throw runtime_error("bad F index received");
                 curimporteridx = mimporteridx;
-                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc);
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc, 0);
                 intest = false;
 #else
             if (type == 's' && !intest && data && sscanf(data, "%d %d", &mfileidx, &mimporteridx) == 2) {
@@ -1099,7 +1182,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             } else if (type == 'f' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
                 if (mfileidx != curfileidx || mimporteridx != curimporteridx)
                     throw runtime_error("bad f index received");
-                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc);
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc, 0);
                 intest = false;
 #endif
             } else if ((type == 'e' || type == 'x') && intest && data) {
@@ -1117,7 +1200,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             throw runtime_error("unrecoverable: " + curmessage);
 
         if (intest)
-            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage, miscmessages, hadmisc);
+            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage, miscmessages, hadmisc, lastretcode);
 
 #if WHICH_TEST == TEST_IMPORT
         fileidx = curfileidx + 1;
