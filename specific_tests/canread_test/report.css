@@ -66,6 +66,9 @@ th.filename, td.filename {
 .test-read .haderror:not(.imp,.pimp) {
     background: unset;
 }
+.filename.rel-path-failed {
+    color: red;
+}
 tr.noimp .result {
     background: #888;
 }

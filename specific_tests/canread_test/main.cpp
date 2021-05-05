@@ -645,7 +645,13 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
             if (!classes.empty())
                 td.setAttribute("class", classes.join(' '));
         }
-        addChild(row, "td", filesystem::relative(result->modelfile).string()).setAttribute("class", "filename");
+        try {
+            addChild(row, "td", filesystem::relative(result->modelfile).string()).setAttribute("class", "filename");
+        } catch (const std::exception &ex) {
+            auto e = addChild(row, "td", result->modelfile.string());
+            e.setAttribute("class", "filename rel-path-failed");
+            e.setAttribute("title", htmlPreEscape(ex.what()));
+        }
     }
 
     QString versionstr = QString().sprintf("assimp version: %d.%d.%d (%s @ %x)",
@@ -804,8 +810,14 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
     files.setAttribute("list", filesystem::relative(listfile, basedir).generic_string().c_str());
     files.setAttribute("base", filesystem::relative(basedir).generic_string().c_str());
     for (int k = 0; k < (int)testfiles.size(); ++ k) {
-        addChild(files, "file", filesystem::relative(testfiles[k], basedir).generic_string())
-                .setAttribute("id", k);
+        try {
+            addChild(files, "file", filesystem::relative(testfiles[k], basedir).generic_string())
+                    .setAttribute("id", k);
+        } catch (const std::exception &ex) {
+            auto e = addChild(files, "file", testfiles[k].generic_string());
+            e.setAttribute("id", k);
+            e.setAttribute("rel-path-failed", ex.what());
+        }
     }
 
     QDomElement eresults = addChild(root, "results");
@@ -891,7 +903,11 @@ static void writeReport (const path &reportfile, const vector<ModelResultPtr> &r
     fprintf(f, "\n");
 
     for (ModelResultPtr result : results) {
-        fprintf(f, "\"%s\"", filesystem::relative(result->modelfile).string().c_str());
+        try {
+            fprintf(f, "\"%s\"", filesystem::relative(result->modelfile).string().c_str());
+        } catch (...) {
+            fprintf(f, "\"%s\"", result->modelfile.filename().string().c_str());
+        }
         fprintf(f, ",%s", result->modelfile.extension().string().c_str());
         for (Result &r : result->results) {
             if (!r.tested)
@@ -986,7 +1002,7 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
 #if VERBOSE_PROGRESS
     static int lastfileidx = -1;
     if (fileidx != lastfileidx) {
-        printf("\n[%3d/%3d] %48s: ", fileidx + 1, (int)results.size(), rclip(filesystem::relative(modelresult->modelfile).string(), 48).c_str());
+        printf("\n[%3d/%3d] %48s: ", fileidx + 1, (int)results.size(), rclip(/*filesystem::relative*/(modelresult->modelfile).string(), 48).c_str());
         lastfileidx = fileidx;
     }
     if (crashed)
