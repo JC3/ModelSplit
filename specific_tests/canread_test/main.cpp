@@ -271,7 +271,8 @@ struct Result {
     string message;
     vector<string> miscmessages;
     bool miscoutput;
-    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), miscoutput(false) { }
+    bool badchars;
+    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), miscoutput(false), badchars(false) { }
 };
 
 struct ModelResult {
@@ -399,10 +400,15 @@ static void writePdfReport (const path &reportfile, const QDomDocument &html) {
     bool complete = false;
 
     QObject::connect(&renderer, &QWebEnginePage::loadFinished, [&] (bool ok) {
-        always_assert(ok);
-        printf("    [pdf] html rendered, generating pdf...\n");
-        QPageLayout layout(QPageSize(QPageSize::A4), QPageLayout::Landscape, QMarginsF());
-        renderer.printToPdf(QString::fromStdString(reportfile.string()), layout);
+        //always_assert(ok);
+        if (!ok) {
+            printf("    [pdf] an error occurred while rendering the html.\n");
+            complete = true;
+        } else {
+            printf("    [pdf] html rendered, generating pdf...\n");
+            QPageLayout layout(QPageSize(QPageSize::A4), QPageLayout::Landscape, QMarginsF());
+            renderer.printToPdf(QString::fromStdString(reportfile.string()), layout);
+        }
     });
 
     QObject::connect(&renderer, &QWebEnginePage::pdfPrintingFinished, [&] (QString, bool ok) {
@@ -500,6 +506,16 @@ static string join (const Container &str_, const string &delim, bool removedupes
     return joined;
 };
 
+static QString htmlPreEscape (const StringHack &str_) {
+
+    QString str = str_; //.s.toHtmlEscaped();
+    for (QChar &ch : str) {
+        if (ch != '\r' && ch != '\n' && !ch.isPrint())
+            ch = '?';
+    }
+    return str;
+
+}
 
 static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
 
@@ -573,7 +589,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
     addChild(header, "th", "Extn").setAttribute("class", "extn");
     for (int k = 0; k < importers; ++ k) {
         QString label = imp.GetImporterInfo(k)->mFileExtensions;
-        addChild(addChild(header, "th"), "div", label).setAttribute("title", label + " - " + imp.GetImporterInfo(k)->mName);
+        addChild(addChild(header, "th"), "div", label).setAttribute("title", htmlPreEscape(label + " - " + imp.GetImporterInfo(k)->mName));
     }
     addChild(header, "th", "Model File").setAttribute("class", "filename");
 
@@ -588,7 +604,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                 row.setAttribute("class", row.attribute("class") + " u_canread");
             string tooltip = join(result->usedResult.miscmessages, "\n");
             if (!tooltip.empty())
-                row.setAttribute("title", QString::fromStdString(tooltip));
+                row.setAttribute("title", htmlPreEscape(tooltip));
         }
 #endif
         addChild(row, "td", result->modelfile.extension().string()).setAttribute("class", "extn");
@@ -610,6 +626,8 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
             //
             if (res.emptyscene)
                 classes.append("emptyscene");
+            if (res.badchars)
+                classes.append("badchars");
             if (result->importersForExtension.find(k) != result->importersForExtension.end())
                 classes.append("imp");
             if (result->primaryImporter == k)
@@ -618,7 +636,7 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
             QDomElement td = addChild(row, "td");
             string tooltip = join(res.miscmessages, "\n");
             if (!tooltip.empty())
-                td.setAttribute("title", QString::fromStdString(tooltip));
+                td.setAttribute("title", htmlPreEscape(tooltip));
             if (!res.message.empty())
                 classes.append("message");
             if (res.miscoutput)
@@ -688,6 +706,27 @@ static QString setstr (const Container &values, char delim = ' ') {
 
 #define XML_REDUCE_SIZE 1
 
+/*
+static QString xmlEscape (const StringHack &str_) {
+
+    QString str = str_;
+    str.replace();
+    return str;
+
+}
+*/
+#define xmlEscape(s) s
+/*static QString xmlEscape (const StringHack &str_) {
+
+    QString str = str_;
+    for (QChar &ch : str) {
+        if (!ch.isPrint())
+            ch = '?';
+    }
+    return str;
+
+}*/
+
 static void addXmlResult (QDomElement addto, const Result &result, int importer) {
 
     if (!result.tested)
@@ -699,15 +738,16 @@ static void addXmlResult (QDomElement addto, const Result &result, int importer)
     if (result.emptyscene) e.setAttribute("emptyscene", true);
     if (result.haderror) e.setAttribute("haderror", true);
     if (result.crashed) e.setAttribute("crashed", true);
+    if (result.badchars) e.setAttribute("badchars", true);
 
     if (!result.message.empty())
-        addChild(e, "message", result.message);
+        addChild(e, "message", xmlEscape(result.message));
 
     if (result.miscoutput || result.miscmessages.size() > 1) {
         QDomElement emm = addChild(e, "miscmessages");
         if (result.miscoutput) emm.setAttribute("std", true);
         for (const string &message : result.miscmessages)
-            addChild(emm, "message", message);
+            addChild(emm, "message", xmlEscape(message));
     }
 
 #if XML_REDUCE_SIZE
@@ -725,10 +765,11 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
     printf("writing %s (xml)...\n", reportfile.string().c_str());
 
     QDomDocument doc;
-    doc.appendChild(doc.createProcessingInstruction("xml", "version=\"1.0\" encoding=\"utf-8\""));
+    doc.appendChild(doc.createProcessingInstruction("xml", "version=\"1.1\" encoding=\"utf-8\""));
 
     QDomElement root = addChild(doc, "canread_test_report");
     root.setAttribute("version", 1);
+    root.setAttribute("escapes", "html");
 
     QDomElement meta = addChild(root, "meta");
     meta.setAttribute("timestamp", QDateTime::currentMSecsSinceEpoch());
@@ -778,6 +819,7 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
     addChild(defaultref, "attr", "0").setAttribute("name", "emptyscene");
     addChild(defaultref, "attr", "0").setAttribute("name", "haderror");
     addChild(defaultref, "attr", "0").setAttribute("name", "crashed");
+    addChild(defaultref, "attr", "0").setAttribute("name", "badchars");
 
     for (int k = 0; k < (int)results.size(); ++ k) {
         const ModelResultPtr &mr = results[k];
@@ -792,7 +834,7 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
             vector<int> tested, untested;
             for (int j = 0; j < (int)mr->results.size(); ++ j)
                 (mr->results[j].tested ? tested : untested).push_back(j);
-            if (tested.size() >= untested.size())
+            if (tested.size() <= untested.size())
                 addChild(eimps, "tested").setAttribute("ids", setstr(tested));
             else
                 addChild(eimps, "untested").setAttribute("ids", setstr(untested));
@@ -883,6 +925,23 @@ static string rclip (string str, int maxwidth) {
 #endif
 
 
+static bool safe_isprint (char c) {
+    return isprint((unsigned char)c);
+}
+
+
+template <typename Container>
+static bool hasUnprintableChars (const Container &strs) {
+
+    for (auto str : strs)
+        if (!all_of(str.begin(), str.end(), safe_isprint))
+            return true;
+
+    return false;
+
+}
+
+
 static void setResult (vector<ModelResultPtr> &results, int fileidx, int importeridx,
                        bool readable, bool emptyscene, bool haderror, bool crashed,
                        const string &message, const vector<string> &miscmessages,
@@ -902,6 +961,10 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
     result.message = message;
     result.miscmessages = miscmessages;
     result.miscoutput = miscoutput;
+    result.badchars = hasUnprintableChars(miscmessages);
+
+    if (result.badchars)
+        OutputDebugStringA("**** BAD CHARS! ****");
 
 #if WHICH_TEST == TEST_IMPORT
     modelresult->usedResult = result;
