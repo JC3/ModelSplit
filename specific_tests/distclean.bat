@@ -9,3 +9,4 @@ cd %~dp0/force_specific_importer && call distclean.bat
 cd %~dp0/scene_tree_depth_test && call distclean.bat
 cd %~dp0/suspicious_3mf_materials && call distclean.bat
 cd %~dp0/canread_test && call distclean.bat
+cd %~dp0/generate_garbage && call distclean.bat

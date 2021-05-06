@@ -4,6 +4,7 @@ SUBDIRS += \
     assimp_rotation_tests \
     decomposition_check \
     force_specific_importer \
+    generate_garbage \
     glb_import_assertion_failure \
     canread_test \
     scene_tree_depth_test \
