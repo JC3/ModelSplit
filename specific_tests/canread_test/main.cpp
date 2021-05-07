@@ -12,7 +12,7 @@
 #endif
 
 #ifndef PDF_OUTPUT
-#  define PDF_OUTPUT 1 // zero disables; requires HTML_OUTPUT
+#  define PDF_OUTPUT 0 // zero disables; requires HTML_OUTPUT
 #endif
 
 #if HTML_OUTPUT || XML_OUTPUT
@@ -27,8 +27,12 @@
 #  if PDF_OUTPUT && HTML_OUTPUT
 #    include <QWebEnginePage>
 #    include <QApplication>
+#    include <QDesktopServices>
+#    include <QUrl>
+#    define GUI_SUPPORTED 1
 #  else
 #    include <QCoreApplication>
+#    define GUI_SUPPORTED 0
 #  endif
 #endif
 #ifdef _WIN32
@@ -66,7 +70,7 @@
 #define TEST_READ             2
 #define TEST_IMPORT           3
 
-#define WHICH_TEST            TEST_CANREAD_CHECKSIG
+#define WHICH_TEST            TEST_READ
 #define VALIDATE_SCENES       1   // only relevant for TEST_IMPORT
 #define VERBOSE_PROGRESS      1
 #define DUMP_LOGS_FROM_ASS    0
@@ -80,6 +84,7 @@
 #define EMBED_FONT_FILE       ":/font/report"  // if EMBED_FONT
 #define NOEMBED_FONT_FAMILY   "Bahnschrift Condensed"  // used whether embed_font or not.
 #define LIST_MESSAGES         0
+#define OPEN_HTML_AT_END      1
 
 using namespace std;
 using path = filesystem::path;
@@ -90,6 +95,37 @@ using path = filesystem::path;
       fprintf(stderr, "always_assert(%s:%d): %s\n", __FILE__, __LINE__, #expr); \
       abort(); \
     } } while (0)
+
+
+// i know c++ has chrono stuff but it makes my head explode.
+// todo: use gettimeofday on linux.
+struct Timer {
+    Timer ();
+    void start ();
+    double seconds () const;
+private:
+#ifdef _WIN32
+    LARGE_INTEGER freq;
+    LARGE_INTEGER t0;
+#endif
+};
+
+#ifdef _WIN32
+Timer::Timer () {
+    QueryPerformanceFrequency(&freq);
+    start();
+}
+
+void Timer::start () {
+    QueryPerformanceCounter(&t0);
+}
+
+double Timer::seconds () const {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return (double)(now.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
+}
+#endif
 
 
 static char * trim (char *str) {
@@ -274,7 +310,8 @@ struct Result {
     vector<string> miscmessages;
     bool miscoutput;
     bool badchars;
-    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), crashedret(0), miscoutput(false), badchars(false) { }
+    double seconds;
+    Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), crashedret(0), miscoutput(false), badchars(false), seconds(0) { }
 };
 
 struct ModelResult {
@@ -560,8 +597,10 @@ static bool shouldIgnore (const string &msg) {
         return true;
     if (msg.find("e [ReadFile]") == 0)
         return true;
-    if (msg.find("[ReadFile]") != string::npos)
-        return msg.find("C:\\") != string::npos || msg.find("c:\\") != string::npos;
+    //if (msg.find("[ReadFile]") != string::npos)
+    //    return msg.find("C:\\") != string::npos || msg.find("c:\\") != string::npos;
+    if (msg.find("[ReadFile]") == 0)
+        return true;
 
     return false;
 
@@ -709,6 +748,10 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                 classes.append("imp");
             if (result->primaryImporter == k)
                 classes.append("pimp");
+            if (res.seconds > 10.0)
+                classes.append("vslow");
+            else if (res.seconds > 5.0)
+                classes.append("slow");
             //
             QDomElement td = addChild(row, "td");
             string tooltip = join(res.miscmessages, "\n");
@@ -720,6 +763,8 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
                 classes.append("miscmessage");
             if (res.crashed)
                 td.setAttribute("data-crashedret", res.crashedret);
+            if (res.tested)
+                td.setAttribute("data-time", res.seconds);
             //
             if (!classes.empty())
                 td.setAttribute("class", classes.join(' '));
@@ -755,6 +800,14 @@ static void writeHtmlReport (const path &reportfile, const vector<ModelResultPtr
             out.close();
         }
     }
+
+#if OPEN_HTML_AT_END
+#  if GUI_SUPPORTED
+    QDesktopServices::openUrl(QUrl::fromLocalFile(reportfile.string().c_str()));
+#  else
+    system(reportfile.string().c_str());
+#  endif
+#endif
 
 #if PDF_OUTPUT
     for (QDomElement &e : removeForPdf)
@@ -837,9 +890,13 @@ static void addXmlResult (QDomElement addto, const Result &result, int importer)
     }
 
 #if XML_REDUCE_SIZE
-    if (!e.hasChildNodes() && e.attributes().size() == 1 /* id */)
+    if (!e.hasChildNodes() && e.attributes().size() == 1 /* id */) {
         addto.removeChild(e);
+        return;
+    }
 #endif
+
+    e.setAttribute("time", result.seconds);
 
 }
 
@@ -914,6 +971,7 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
     addChild(defaultref, "attr", "0").setAttribute("name", "crashed");
     addChild(defaultref, "attr", "unset").setAttribute("name", "crashedret");
     addChild(defaultref, "attr", "0").setAttribute("name", "badchars");
+    addChild(defaultref, "attr", "unset").setAttribute("name", "time");
 
     for (int k = 0; k < (int)results.size(); ++ k) {
         const ModelResultPtr &mr = results[k];
@@ -1043,7 +1101,7 @@ static bool hasUnprintableChars (const Container &strs) {
 static void setResult (vector<ModelResultPtr> &results, int fileidx, int importeridx,
                        bool readable, bool emptyscene, bool haderror, bool crashed,
                        const string &message, const vector<string> &miscmessages,
-                       bool miscoutput, int crashedRetCode)
+                       bool miscoutput, int crashedRetCode, double seconds)
 {
 
     if (fileidx < 0 || fileidx >= (int)results.size())
@@ -1061,6 +1119,7 @@ static void setResult (vector<ModelResultPtr> &results, int fileidx, int importe
     result.miscmessages = miscmessages;
     result.miscoutput = miscoutput;
     result.badchars = hasUnprintableChars(miscmessages);
+    result.seconds = seconds;
 
     if (result.badchars)
         OutputDebugStringA("**** BAD CHARS! ****");
@@ -1116,6 +1175,8 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
     for (path modelfile : testfiles)
         results.push_back(ModelResultPtr(new ModelResult(modelfile, importers)));
 
+    Timer esttime;
+
     while (fileidx < (int)testfiles.size() && (WHICH_TEST == TEST_IMPORT || importeridx < importers)) {
 
         string command = makeCommand(myself, fileidx, importeridx, listfile, basedir);
@@ -1158,6 +1219,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 memptyscene = false;
                 miscmessages.clear();
                 hadmisc = false;
+                esttime.start();
                 if (curfileidx < 0 || curfileidx >= (int)testfiles.size())
                     throw runtime_error("bad S index received");
             } else if (type == 'F' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
@@ -1177,12 +1239,13 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                 memptyscene = false;
                 miscmessages.clear();
                 hadmisc = false;
+                esttime.start();
                 if (curfileidx < 0 || curfileidx >= (int)testfiles.size() || curimporteridx < 0 || curimporteridx >= importers)
                     throw runtime_error("bad s index received");
             } else if (type == 'f' && intest && data && sscanf(data, "%d %d %d %d", &mfileidx, &mimporteridx, &mreadable, &memptyscene) == 4) {
                 if (mfileidx != curfileidx || mimporteridx != curimporteridx)
                     throw runtime_error("bad f index received");
-                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc, 0);
+                setResult(results, curfileidx, curimporteridx, mreadable, memptyscene, haderror, false, curmessage, miscmessages, hadmisc, 0, esttime.seconds());
                 intest = false;
 #endif
             } else if ((type == 'e' || type == 'x') && intest && data) {
@@ -1200,7 +1263,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             throw runtime_error("unrecoverable: " + curmessage);
 
         if (intest)
-            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage, miscmessages, hadmisc, lastretcode);
+            setResult(results, curfileidx, curimporteridx, false, false, true, true, curmessage, miscmessages, hadmisc, lastretcode, esttime.seconds());
 
 #if WHICH_TEST == TEST_IMPORT
         fileidx = curfileidx + 1;

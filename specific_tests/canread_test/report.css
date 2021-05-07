@@ -34,6 +34,12 @@ td.imp {
 td.pimp {
     border: 3px solid #000;
 }
+.slow::after {
+    content: '?';
+}
+.vslow::after {
+    content: '!';
+}
 table {
     border-collapse: collapse;
 }
@@ -63,8 +69,11 @@ th.filename, td.filename {
 .untested {
     background: #ccc;
 }
-.test-read .haderror:not(.imp,.pimp) {
+.test-read .haderror:not(.imp) {
     background: unset;
+}
+.test-read .canread:not(.imp) {
+    background: cyan;
 }
 .filename.rel-path-failed {
     color: red;
