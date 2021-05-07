@@ -1625,7 +1625,7 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
                     static int anim = 0;
                     printf("%c\b", OGspinner[anim++]);
                     if (!OGspinner[anim]) anim = 0;
-                    if (esttime.seconds() > 16) {
+                    if (esttime.seconds() > 11) {
                         printf("#\b");
                         proc.kill();
                     }
