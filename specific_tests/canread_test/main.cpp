@@ -24,6 +24,7 @@
 #  include <QMimeDatabase>
 #  include <QResource>
 #  include <QDateTime>
+#  include <QProcess>
 #  if PDF_OUTPUT && HTML_OUTPUT
 #    include <QWebEnginePage>
 #    include <QApplication>
@@ -65,9 +66,15 @@
 #  define dup2   _dup2
 #endif
 
+#if QT_AVAILABLE
+#  define ENABLE_CASEGEN 1
+#  define USE_QPROCESS   1
+#endif
+
 #define EXIT_STD_EXCEPTION    80
 #define EXIT_OTHER_EXCEPTION  81
 #define EXIT_TEST_ERROR       82
+#define EXIT_TEST_QPCRASHED   83  // only if USE_QPROCESS
 
 #define TEST_CANREAD          0
 #define TEST_CANREAD_CHECKSIG 1
@@ -294,6 +301,18 @@ static int runClient (const vector<path> &testfiles, const path &myself, int fil
 }
 
 
+#if USE_QPROCESS
+static QStringList makeCommand (const path &myself, int fileidx, int importeridx, const path &listfile, const path &basedir) {
+    QStringList c;
+    c << filesystem::relative(myself).string().c_str()
+      << "--go"
+      << QString("%1").arg(fileidx)
+      << QString("%1").arg(importeridx)
+      << listfile.string().c_str()
+      << basedir.string().c_str();
+    return c;
+}
+#else
 static string makeCommand (const path &myself, int fileidx, int importeridx, const path &listfile, const path &basedir) {
 
     return (stringstream()
@@ -301,6 +320,7 @@ static string makeCommand (const path &myself, int fileidx, int importeridx, con
             << " \"" << listfile.string() << "\" \"" << basedir.string() << "\"").str();
 
 }
+#endif
 
 
 // 'using enum' is c++20, can't count on it with msvc
@@ -1070,7 +1090,7 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
 #endif // XML_OUTPUT
 
 
-#if QT_AVAILABLE
+#if ENABLE_CASEGEN
 
 static QDomElement xmlFirstChild (QDomElement elem, QString tag, const function<bool(const QDomElement &)> &pred) {
     for (QDomElement c = elem.firstChildElement(tag); !c.isNull(); c = c.nextSiblingElement(tag))
@@ -1411,7 +1431,7 @@ static int casegenMain (int argc, char **argv) {
 }
 
 
-#endif // QT_AVAILABLE
+#endif // ENABLE_CASEGEN
 
 
 static void writeReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
@@ -1574,17 +1594,48 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
 
     while (fileidx < (int)testfiles.size() && (WHICH_TEST == TEST_IMPORT || importeridx < importers)) {
 
+#if USE_QPROCESS
+        QStringList command = makeCommand(myself, fileidx, importeridx, listfile, basedir);
+        always_assert(!command.empty());
+        QProcess proc;
+        proc.setReadChannel(QProcess::StandardOutput);
+        proc.setProgram(command.takeFirst());
+        proc.setArguments(command);
+        proc.start(QIODevice::ReadOnly);
+        if (!proc.waitForStarted())
+            throw runtime_error(proc.errorString().toStdString());
+#else
         string command = makeCommand(myself, fileidx, importeridx, listfile, basedir);
         FILE *p = popen(command.c_str(), "rt");
         if (!p)
             throw runtime_error(string("popen: ") + strerror(errno));
+#endif
 
         char buf[1000], *message, type, *data;
         int mfileidx, mimporteridx, mreadable, memptyscene, curfileidx = -1, curimporteridx = -1;
         string curmessage;
         vector<string> miscmessages;
         bool intest = false, haderror = false, hadmisc = false;
+#if USE_QPROCESS
+        int readresult;
+        while ((readresult = proc.readLine(buf, sizeof(buf))) >= 0) {
+            if (readresult == 0) {
+                if (!proc.waitForReadyRead(100)) {
+                    static const char *OGspinner = "-\\|/";
+                    static int anim = 0;
+                    printf("%c\b", OGspinner[anim++]);
+                    if (!OGspinner[anim]) anim = 0;
+                    if (esttime.seconds() > 16) {
+                        printf("#\b");
+                        proc.kill();
+                    }
+                    fflush(stdout);
+                }
+                continue;
+            }
+#else
         while (fgets(buf, sizeof(buf), p)) {
+#endif
             message = trim(buf);
             if (!*message)
                 continue;
@@ -1653,7 +1704,15 @@ static int runServer (const vector<path> &testfiles, const path &myself, const p
             }
         }
 
+#if USE_QPROCESS
+        proc.waitForFinished();
+        if (proc.exitStatus() == QProcess::NormalExit)
+            lastretcode = proc.exitCode();
+        else
+            lastretcode = EXIT_TEST_QPCRASHED;
+#else
         lastretcode = pclose(p);
+#endif
         if (lastretcode == EXIT_TEST_ERROR)
             throw runtime_error("unrecoverable: " + curmessage);
 
@@ -1741,7 +1800,7 @@ int main (int argc, char **argv) {
     // canread_test --casegen report.xml outdir
 
     bool runner = (argc > 1 && !strcmp(argv[1], "--go"));
-#if QT_AVAILABLE
+#if ENABLE_CASEGEN
     bool casegen = (argc > 1 && !strcmp(argv[1], "--casegen"));
 #endif
     int fileidx = -1, importeridx = -1;
@@ -1752,7 +1811,7 @@ int main (int argc, char **argv) {
         importeridx = atoi(argv[3]);
         listfile = filesystem::absolute(argv[4]);
         basedir = filesystem::absolute(argc > 5 ? argv[5] : ".");
-#if QT_AVAILABLE
+#if ENABLE_CASEGEN
     } else if (casegen) {
         try {
             return casegenMain(argc, argv);
