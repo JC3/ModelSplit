@@ -34,6 +34,9 @@
 #    include <QCoreApplication>
 #    define GUI_SUPPORTED 0
 #  endif
+#  define QT_AVAILABLE 1
+#else
+#  define QT_AVAILABLE 0
 #endif
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
@@ -42,6 +45,7 @@
 #endif
 #include <cstdio>
 #include <list>
+#include <map>
 #include <string>
 #include <filesystem>
 #include <optional>
@@ -299,6 +303,30 @@ static string makeCommand (const path &myself, int fileidx, int importeridx, con
 }
 
 
+// 'using enum' is c++20, can't count on it with msvc
+namespace NSResultFlags {
+    enum ResultFlags : unsigned {
+        None       = 0     ,
+        Tested     = 1 << 0,
+        CanRead    = 1 << 1,
+        EmptyScene = 1 << 2,
+        HadError   = 1 << 3,
+        Crashed    = 1 << 4,
+        HasMessage = 1 << 5,
+        MiscOutput = 1 << 6,
+        BadChars   = 1 << 7,
+        Slow       = 1 << 8
+    };
+    constexpr ResultFlags operator | (ResultFlags a, ResultFlags b) {
+        return (ResultFlags)((unsigned)a | (unsigned)b);
+    }
+    ResultFlags & operator |= (ResultFlags &a, ResultFlags b) {
+        return (a = a | b);
+    }
+    static const constexpr ResultFlags DefaultMatchFlags = CanRead|EmptyScene|HadError|Crashed|HasMessage|MiscOutput|BadChars;
+}
+
+
 struct Result {
     bool tested;
     bool canread;
@@ -312,6 +340,26 @@ struct Result {
     bool badchars;
     double seconds;
     Result () : tested(false), canread(false), emptyscene(false), haderror(false), crashed(false), crashedret(0), miscoutput(false), badchars(false), seconds(0) { }
+    // utilities for casegen
+    using ResultFlags = NSResultFlags::ResultFlags;
+    static const constexpr ResultFlags DefaultMatchFlags = NSResultFlags::DefaultMatchFlags;
+    ResultFlags flags () const {
+        using namespace NSResultFlags;
+        ResultFlags f = None;
+        if (tested) f |= Tested;
+        if (canread) f |= CanRead;
+        if (emptyscene) f |= EmptyScene;
+        if (haderror) f |= HadError;
+        if (crashed) f |= Crashed;
+        if (!message.empty()) f |= HasMessage;
+        if (miscoutput) f |= MiscOutput;
+        if (badchars) f |= BadChars;
+        if (seconds >= 5) f |= Slow;
+        return f;
+    }
+    bool matches (ResultFlags checkflags, ResultFlags flagset = DefaultMatchFlags) const {
+        return (flags() & flagset) == checkflags;
+    }
 };
 
 struct ModelResult {
@@ -323,7 +371,10 @@ struct ModelResult {
     optional<int> usedImporter;
     Result usedResult; // even if !usedImporter.hasValue
 #endif
-    ModelResult (const path &modelfile, int importers) :  modelfile(modelfile), results(importers) { queryImporters(); }
+    ModelResult (const path &modelfile, int importers, bool qi = true) :
+        modelfile(modelfile), results(importers) { if (qi) queryImporters(); }
+    // for whatever
+    optional<int> cacheKey;
 private:
     void queryImporters ();
 };
@@ -1016,7 +1067,351 @@ static void writeXmlReport (const path &reportfile, const vector<ModelResultPtr>
 
 }
 
-#endif
+#endif // XML_OUTPUT
+
+
+#if QT_AVAILABLE
+
+static QDomElement xmlFirstChild (QDomElement elem, QString tag, const function<bool(const QDomElement &)> &pred) {
+    for (QDomElement c = elem.firstChildElement(tag); !c.isNull(); c = c.nextSiblingElement(tag))
+        if (pred(c))
+            return c;
+    return QDomElement();
+}
+
+
+static QDomElement xmlForEach (QDomElement elem, QString tag, const function<void(QDomElement)> &func) {
+    for (QDomElement c = elem.firstChildElement(tag); !c.isNull(); c = c.nextSiblingElement(tag))
+        func(c);
+    return elem;
+}
+
+
+template <typename Container>
+static bool consecutive (const Container &c) {
+    for (int k = 0; k < (int)c.size(); ++ k)
+        if (c.find(k) == c.end())
+            return false;
+    return true;
+}
+
+
+static int strhash (const string &s) {
+    return (int)std::hash<string>()(s);
+}
+
+
+struct ByResultProfile {
+private:
+    static map<int,vector<int> > rpcache_;
+    static bool checkmsgs_;
+public:
+    static void setCheckMessages (bool v) {
+        checkmsgs_ = v;
+        clearCache();
+    }
+    static void clearCache () {
+        rpcache_.clear();
+    }
+    template <typename Container>
+    static void debugrp (const Container &ms) {
+        for (const ModelResultPtr m : ms) {
+            printf("  rpcache: ");
+            if (!m->cacheKey.has_value()) {
+                printf("no cache key\n");
+                continue;
+            }
+            printf("%4d: ", m->cacheKey.value());
+            auto entry = rpcache_.find(m->cacheKey.value());
+            if (entry == rpcache_.end()) {
+                printf("not in cache\n");
+                continue;
+            }
+            const vector<int> &rp = entry->second;
+            for (int k = 0; k < rp.size(); k += 2)
+                printf("%c", rp[k] ? 'U' : '.');
+            printf("\n");
+        }
+    }
+    static vector<int> makerp (const ModelResult &m) {
+        if (m.cacheKey.has_value()) {
+            auto cached = rpcache_.find(m.cacheKey.value());
+            if (cached != rpcache_.end()) return cached->second;
+        }
+        vector<int> rp;
+        using namespace NSResultFlags;
+        map<int,bool> as_expected;
+        // see if one of the expected importers *did* work
+        optional<int> working;
+        for (int i : m.importersForExtension) {
+            if (m.results[i].matches(CanRead, DefaultMatchFlags | Slow)) {
+                as_expected[i] = true;
+                working = i;
+                break;
+            }
+        }
+        // if so, make sure any other expected importers gracefully failed,
+        // otherwise; none of them are working as expected.
+        if (working.has_value()) {
+            for (int i : m.importersForExtension) {
+                if (i != working.value()) {
+                    bool ok = m.results[i].matches(HadError | HasMessage, DefaultMatchFlags | Slow);
+                    as_expected[i] = ok;
+                }
+            }
+        } else {
+            for (int i : m.importersForExtension)
+                as_expected[i] = false;
+        }
+        // and... now i've confused myself so let's just try random crap and hope it works.
+        for (int k = 0; k < (int)m.results.size(); ++ k) {
+            bool expected_result;
+            if (as_expected.find(k) != as_expected.end()) {
+                expected_result = as_expected[k];
+            } else {
+                // expected result is a fast graceful failure
+                expected_result = m.results[k].matches(HadError | HasMessage, DefaultMatchFlags | Slow);
+            }
+            // now give it some hash-y thing
+            if (expected_result) {
+                rp.push_back(0);
+                rp.push_back(0);
+                if (checkmsgs_)
+                    rp.push_back(0);
+            } else {
+                rp.push_back(m.results[k].flags());
+                rp.push_back(m.results[k].crashed ? m.results[k].crashedret : 0);
+                if (checkmsgs_)
+                    rp.push_back(strhash(m.results[k].message));
+            }
+        }
+        if (m.cacheKey.has_value())
+            rpcache_[m.cacheKey.value()] = rp;
+        return rp;
+    }
+    bool operator () (ModelResultPtr a, ModelResultPtr b) const {
+        if (!a)
+            return true;
+        else if (a == b)
+            return false;
+        else {
+            auto va = makerp(*a);
+            auto vb = makerp(*b);
+            return std::lexicographical_compare(va.begin(), va.end(), vb.begin(), vb.end());
+        }
+    }
+};
+
+map<int,vector<int> > ByResultProfile::rpcache_;
+bool ByResultProfile::checkmsgs_ = false;
+
+
+static bool allfast (const ModelResultPtr &m, double threshold = -1) {
+    using namespace NSResultFlags;
+    for (const Result &r : m->results) {
+        if (threshold < 0) {
+            if (r.flags() & Slow)
+                return false;
+        } else {
+            if (r.seconds >= threshold)
+                return false;
+        }
+    }
+    return true;
+}
+
+
+static int casegenMain (int argc, char **argv) {
+
+    always_assert(argc > 1);
+    always_assert(!strcmp(argv[1], "--casegen"));
+
+    if (argc != 4)
+        return EXIT_FAILURE;
+
+    path reportfile(argv[2]);
+    path outdir = filesystem::absolute(argv[3]);
+
+    printf("[casegen] loading %s...\n", reportfile.string().c_str());
+
+    QDomDocument report;
+    {
+        QFile freport(reportfile.string().c_str());
+        if (!freport.open(QFile::ReadOnly | QFile::Text))
+            throw runtime_error(freport.errorString().toStdString());
+        QString message;
+        if (!report.setContent(&freport, &message))
+            throw runtime_error(message.toStdString());
+    }
+
+    printf("[casegen] processing report...\n");
+
+    QDomElement root = report.documentElement();
+    if (root.tagName() != "canread_test_report")
+        throw runtime_error("not a report file");
+    else if (root.attribute("version") != "1")
+        throw runtime_error("unsupported report version");
+    if (root.attribute("escapes") != "html")
+        printf("[warning] unexpected string escape flavor");
+
+    QDomElement meta = root.firstChildElement("meta");
+    QDomElement config = meta.firstChildElement("config");
+    QDomElement config_WHICH_TEST = xmlFirstChild(config, "var", [](QDomElement e){ return e.attribute("name") == "WHICH_TEST"; });
+    if (config_WHICH_TEST.attribute("value") != "2")
+        throw runtime_error("report is not from a TEST_READ test");
+
+    map<int,QString> importerNames;
+    QDomElement assimp = meta.firstChildElement("assimp");
+    QDomElement importers = assimp.firstChildElement("importers");
+    xmlForEach(importers, "importer", [&importerNames] (QDomElement imp) {
+        bool ok;
+        importerNames[imp.attribute("id").toInt(&ok)] = imp.text().trimmed();
+        if (!ok) throw runtime_error("missing importer id attribute");
+    });
+    if (importerNames.empty())
+        throw runtime_error("missing importer metadata");
+    if (!consecutive(importerNames))
+        throw runtime_error("gaps in importer ids");
+    int nimporters = (int)importerNames.size();
+    printf("[casegen] %d importers found in report.\n", nimporters);
+
+    map<int,path> filePaths;
+    QDomElement files = root.firstChildElement("files");
+    if (files.isNull())
+        throw runtime_error("missing file list");
+    path filebasedir = files.attribute("base", ".").toStdString();
+    xmlForEach(files, "file", [&] (QDomElement fel) {
+        bool ok;
+        int id = fel.attribute("id").toInt(&ok);
+        if (!ok) throw runtime_error("missing file id attribute");
+        QString pstr = fel.text().trimmed();
+        if (pstr == "") throw runtime_error("missing file name");
+        path filepath = filesystem::absolute(filebasedir / pstr.toStdString());
+        filePaths[id] = filepath;
+    });
+    if (!consecutive(filePaths))
+        throw runtime_error("gaps in file ids");
+    printf("[casegen] %d test files found in report.\n", (int)filePaths.size());
+
+    list<ModelResultPtr> modelResults;
+    QDomElement results = root.firstChildElement("results");
+    bool compressed = (results.attribute("compressed").toInt() != 0);
+    xmlForEach(results, "model", [&] (QDomElement model) {
+        bool ok;
+        int fid = model.attribute("file").toInt(&ok);
+        if (!ok) throw runtime_error("missing model file id");
+        path modelfile = filePaths[fid];
+        if (modelfile.empty()) throw runtime_error("invalid model file id");
+        if (!filesystem::exists(modelfile)) {
+            printf("[warning] file does not exist: %s\n", modelfile.string().c_str());
+            return;
+        }
+        ModelResultPtr mres(new ModelResult(modelfile, nimporters, true));
+        mres->cacheKey = fid;
+        modelResults.push_back(mres);
+        QDomElement mimps = model.firstChildElement("importers");
+        if (compressed) {
+            QDomElement utcheck = mimps.firstChildElement("untested");
+            if (utcheck.isNull() || utcheck.attribute("ids") != "")
+                throw runtime_error("fixme: handle compression completely");
+            for (Result &r : mres->results)
+                r.tested = true;
+        }
+        xmlForEach(mimps, "importer", [&] (QDomElement imp) {
+            int id = imp.attribute("id").toInt(&ok);
+            if (!ok) throw runtime_error("missing result importer id");
+            if (id < 0 || id >= nimporters) throw runtime_error("invalid result importer id");
+            Result &r = mres->results[id];
+            r.canread = imp.attribute("canread").toInt();
+            r.emptyscene = imp.attribute("emptyscene").toInt();
+            r.haderror = imp.attribute("haderror").toInt();
+            r.crashed = imp.attribute("crashed").toInt();
+            r.crashedret = imp.attribute("crashedret").toInt(nullptr, 0);
+            r.message = imp.firstChildElement("message").text().trimmed().toStdString();
+            QDomElement mmsgs = imp.firstChildElement("miscmessages");
+            r.miscoutput = mmsgs.attribute("std").toInt();
+            xmlForEach(mmsgs, "message", [&] (QDomElement mmsg) {
+                r.miscmessages.push_back(mmsg.text().trimmed().toStdString());
+            });
+            if (r.miscmessages.empty() && r.message != "")
+                r.miscmessages.push_back(r.message);
+            r.badchars = imp.attribute("badchars").toInt();
+            r.seconds = imp.attribute("time").toDouble();
+        });
+    });
+    printf("[casegen] %d result sets loaded from report.\n", (int)modelResults.size());
+    printf("[casegen] report loaded.\n");
+
+    //--------------------
+
+    ByResultProfile::setCheckMessages(false);
+    set<ModelResultPtr,ByResultProfile> cases1;
+    for (ModelResultPtr mres : modelResults)
+        cases1.insert(mres);
+    printf("[casegen] by profile: generated %d test cases\n", (int)cases1.size());
+
+    {
+        FILE *f = fopen("cases1.txt", "wt");
+        for (const ModelResultPtr &mr : cases1) {
+            try {
+                fprintf(f, "%s\n", filesystem::relative(mr->modelfile).generic_string().c_str());
+            } catch (...) {
+                fprintf(f, "%s\n", mr->modelfile.generic_string().c_str());
+            }
+        }
+        fclose(f);
+        printf("[casesgen] wrote cases1.txt\n");
+    }
+
+    // --------------------
+
+    ByResultProfile::setCheckMessages(true);
+    set<ModelResultPtr,ByResultProfile> cases2;
+    for (ModelResultPtr mres : modelResults)
+        cases2.insert(mres);
+    printf("[casegen] by profile + message: generated %d test cases\n", (int)cases2.size());
+
+    {
+        FILE *f = fopen("cases2.txt", "wt");
+        for (const ModelResultPtr &mr : cases2) {
+            try {
+                fprintf(f, "%s\n", filesystem::relative(mr->modelfile).generic_string().c_str());
+            } catch (...) {
+                fprintf(f, "%s\n", mr->modelfile.generic_string().c_str());
+            }
+        }
+        fclose(f);
+        printf("[casesgen] wrote cases2.txt\n");
+    }
+
+    // --------------------
+
+    ByResultProfile::setCheckMessages(true);
+    set<ModelResultPtr,ByResultProfile> cases3;
+    for (ModelResultPtr mres : modelResults)
+        if (allfast(mres, 10))
+            cases3.insert(mres);
+    printf("[casegen] fast only, by profile + message: generated %d test cases\n", (int)cases3.size());
+
+    {
+        FILE *f = fopen("cases3.txt", "wt");
+        for (const ModelResultPtr &mr : cases3) {
+            try {
+                fprintf(f, "%s\n", filesystem::relative(mr->modelfile).generic_string().c_str());
+            } catch (...) {
+                fprintf(f, "%s\n", mr->modelfile.generic_string().c_str());
+            }
+        }
+        fclose(f);
+        printf("[casesgen] wrote cases3.txt\n");
+    }
+
+    return EXIT_SUCCESS;
+
+}
+
+
+#endif // QT_AVAILABLE
 
 
 static void writeReport (const path &reportfile, const vector<ModelResultPtr> &results, int importers) {
@@ -1343,8 +1738,12 @@ int main (int argc, char **argv) {
 
     // canread_test listfile [ basedir ]
     // canread_test --go start_file_index start_importer_index listfile [ basedir ]
+    // canread_test --casegen report.xml outdir
 
     bool runner = (argc > 1 && !strcmp(argv[1], "--go"));
+#if QT_AVAILABLE
+    bool casegen = (argc > 1 && !strcmp(argv[1], "--casegen"));
+#endif
     int fileidx = -1, importeridx = -1;
     path listfile, basedir, myself = filesystem::absolute(argv[0]);
 
@@ -1353,6 +1752,15 @@ int main (int argc, char **argv) {
         importeridx = atoi(argv[3]);
         listfile = filesystem::absolute(argv[4]);
         basedir = filesystem::absolute(argc > 5 ? argv[5] : ".");
+#if QT_AVAILABLE
+    } else if (casegen) {
+        try {
+            return casegenMain(argc, argv);
+        } catch (const std::exception &x) {
+            printf("[error] %s\n", x.what());
+            return EXIT_FAILURE;
+        }
+#endif
     } else if (!runner && (argc == 2 || argc == 3)) {
         listfile = filesystem::absolute(argv[1]);
         basedir = filesystem::absolute(argc > 2 ? argv[2] : ".");

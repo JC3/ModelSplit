@@ -9,3 +9,8 @@
 *_qmlcache.qrc
 STOP
 /dna.txt
+
+/big-report.*
+/cases*.txt
+/cases1/
+*.pdf
