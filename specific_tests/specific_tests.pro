@@ -10,4 +10,6 @@ SUBDIRS += \
     scene_tree_depth_test \
     suspicious_3mf_materials \
     x3d_importer_fallback \
-	test_exporter_crashes
+	test_exporter_crashes \
+	compare_reports
+	
