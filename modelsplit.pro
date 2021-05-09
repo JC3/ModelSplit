@@ -5,4 +5,4 @@ SUBDIRS += \
     modelsplit \
     specific_tests
 
-OTHER_FILES += assimp.pri .qmake.conf README.md
+OTHER_FILES += assimp.pri .qmake.conf README.md 3rdparty/postdeploy.sh
