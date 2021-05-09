@@ -10,7 +10,8 @@
 STOP
 /dna.txt
 
-/big-report.*
+/big-report*
 /cases*.txt
 /cases1/
 *.pdf
+/cases*-report.*
